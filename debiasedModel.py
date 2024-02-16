@@ -21,10 +21,10 @@ class Debiased_model:
         self.n = None #number of training datapoints
         self.model = None #(debiased) model generated
 
-    def debias(self, X_train, Y_train, init_model, max_depth, policy, gran=None):
+    def debias(self, X_train, Y_train, init_model, max_depth, model_policy, debias_policy, gran=None):
         self.prediction_dim = Y_train.shape[1]
         self.depth = max_depth
-        self.policy = policy
+        self.policy = model_policy
         self.gran = gran
         self.n = len(X_train)
         self.model = init_model
@@ -38,6 +38,8 @@ class Debiased_model:
         
         self.training_preds = [[] for i in range(self.depth + 1)] # track all predictions (including initial and final models)
         self.debiasing_cond = [{"coord": None} for i in range(self.depth)] # store the coordinate 
+
+
         # Begin debiasing process:
         t = 0
         early_stop = False
@@ -57,15 +59,22 @@ class Debiased_model:
                     if t >= self.depth:
                         break
                     print(t, end="")
-                    self._bucket_xs(self.model, X_train, coord, t=t, save=True)
+                    if self.policy == debias_policy: #if debiasing against self, the model you're debiasing wrt changes every round
+                        self._bucket_xs(self.model, debias_policy, X_train, coord, t=t, save=True, self_debias = True)
+                    else:
+                        self._bucket_xs(self.model, debias_policy, X_train, coord, t=t, save=True)
                     self._update_bias_terms(t, Y_train)
-                    self._update_model(self.model, t)
+                    
+                    if self.policy == debias_policy:
+                        self._update_model(self.model, t, debias_policy, self_debias=True)
+                    else:
+                        self._update_model(self.model, t, debias_policy)
                     t += 1
         if not early_stop:
             self.training_preds[t] = self.model(X_train)
         return self.model
 
-    def _bucket_xs(self, curr_model, xs, coord, t = None, save=False):
+    def _bucket_xs(self, curr_model, debias_policy, xs, coord, t = None, save=False, self_debias = False):
         """
         Helper function which takes the current model and training data, runs the current model
         on this data and then buckets the training data according to the policy's decisions on
@@ -82,16 +91,22 @@ class Debiased_model:
         Note: buckets are fully disjoint since only looking at a single coordinate at a time. 
         """
 
-        # get current model's predictions
-        preds = curr_model(xs)
+        # get predictions of the model that will debias wrt and of current model
+
+        if self_debias:
+            curr_model_preds = curr_model(xs)
+            policy_model_preds = curr_model_preds
+        else:
+            curr_model_preds = curr_model(xs)
+            policy_model_preds = debias_policy.model(xs)
         
         if save:
             # store the predictions and the coordinate the debiasing is run on
-            self.training_preds[t] = preds
+            self.training_preds[t] = curr_model_preds
             self.debiasing_cond[t] = coord
         
         # apply policy to each of the predictions 
-        policies = self.policy.run(preds)  
+        policies = self.policy.run_given_preds(policy_model_preds)  
         
         # note that for a single coordinate, the possible values for the policy split 
         # the xs into a disjoint set of buckets/level sets, and hence debiasing can be
@@ -105,12 +120,14 @@ class Debiased_model:
         while i < self.policy.n_vals: # i iterates through possible policy values 
 
             val = self.policy.coordinate_values[i]
-
+            
+            # pull out the indices where the policy induces val at the target coordinate 
             indices = np.arange(len(policies))[policies[:,coord] == val]
             
             if save == True:
+                #record the indices and the current model's predictions at those points
                 self.training_buckets_indices[t][i] = indices
-                self.training_buckets_preds[t][i] = preds[indices]
+                self.training_buckets_preds[t][i] = curr_model_preds[indices]
             else:
                 local_bucket_indices[i] = indices
             
@@ -140,15 +157,17 @@ class Debiased_model:
         
         return self.bias_array
     
-    def _update_model(self, curr_model, t):
+    def _update_model(self, curr_model, t, debias_policy, self_debias=False):
         """
         """
         def new_model(xs):
             old_preds = curr_model(xs)
 
             curr_coord = self.debiasing_cond[t]
-
-            bucket_indices = self._bucket_xs(curr_model, xs, curr_coord)
+            if self_debias:
+                bucket_indices = self._bucket_xs(curr_model, debias_policy, xs, curr_coord, self_debias=True)
+            else:
+                bucket_indices = self._bucket_xs(curr_model, debias_policy, xs, curr_coord)
             new_preds = old_preds
 
             # bucket indices will be a nested array

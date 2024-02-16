@@ -2,7 +2,7 @@ import numpy as np
 
 class Policy:
 
-    def __init__(self, dim):
+    def __init__(self, dim, model):
         """
         name: string value describing what type of allocation policy
         gran: granularity used in generating the policy (e.g. if 0.1, can
@@ -19,18 +19,27 @@ class Policy:
         self.coordinate_values = None
         self.n_vals = None
         self.dim = dim
+        self.model = model
+
     def run(preds):
         return -1
 
 class Simplex(Policy):
 
-    def __init__(self, dim):
-        Policy.__init__(self, dim)
+    def __init__(self, dim, model):
+        Policy.__init__(self, dim, model)
         self.name = "simplex"
         self.coordinate_values = [1]
         self.n_vals = len(self.coordinate_values)
     
-    def run(self, preds):
+    def run(self, xs):
+        preds = self.model(xs)
+        allocation = np.zeros((len(preds), self.dim))
+        max_coord = np.argmax(preds, axis=1)
+        allocation[np.arange(len(preds)), max_coord] = np.ones(len(preds))
+        return allocation
+
+    def run_given_preds(self, preds):
         # expects numpy matrix of predictions, where 1 row corresponds to a single vector of predictions
         """
         preds: array of predictions, where one row corresponds to a single vector of predictions.
