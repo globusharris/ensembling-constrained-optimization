@@ -39,6 +39,9 @@ class Debiased_model:
         self.training_preds = [[] for i in range(self.depth + 1)] # track all predictions (including initial and final models)
         self.debiasing_cond = [{"coord": None} for i in range(self.depth)] # store the coordinate 
 
+        # Error check: model needs to be cast to floats or else debiasing behaves unexpectedly
+        if init_model(X_train[0]).dtype != 'float64':
+            raise TypeError("Initial model must cast predictions to floats.")
 
         # Begin debiasing process:
         t = 0
@@ -147,9 +150,11 @@ class Debiased_model:
             if len(bucket)!=0:
                 preds = self.training_buckets_preds[t][i]
                 ys = Y_train[self.training_buckets_indices[t][i]]
-                # note: splitting up the mean calculations bc was getting weird
-                # floating point issue when calculating np.mean(preds - ys) instead
                 self.bias_array[t][i] = np.mean(preds, axis=0) - np.mean(ys, axis=0)
+                # Once fully debiased, start getting floating point issues due to the mean calculations.
+                # So have check here for if close to zero, so that halting condition can be raised.
+                if np.all(np.isclose(self.bias_array[t][i], np.zeros(len(self.bias_array[t][i])), atol=1e-8)):
+                    self.bias_array[t][i] = np.zeros(len(self.bias_array[t][i]))
             else:
                 # otherwise, never use this term, so not important, but for now filling w zeros
                 # maybe shouldl use nans instead idk.
@@ -173,8 +178,10 @@ class Debiased_model:
             # bucket indices will be a nested array
             for i in range(len(bucket_indices)):
                 bucket = bucket_indices[i]
+                if len(bucket)==0:
+                    break
                 bias_term = self.bias_array[t][i]
-                new_preds[bucket] = new_preds[bucket] - bias_term
+                new_preds[bucket]-= bias_term 
             
             # return new_preds
             return new_preds
@@ -189,9 +196,7 @@ class Debiased_model:
 
         # need to check for every possible coordinate, so need to check for the bias array
         # over the last pred_dim number of rounds. 
-
-        # will eventually add tolerance condition
-        if np.sum(self.bias_array[t-self.policy.n_vals - 1:t]) == 0.0:
+        if np.all(self.bias_array[t-self.policy.n_vals*self.policy.dim:t] == 0.0):
             return True
         else: return False
     
