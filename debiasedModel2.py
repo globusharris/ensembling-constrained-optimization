@@ -10,7 +10,7 @@ class Debiased_model:
         # initializing the model 
         self.init_model = init_model
         self.curr_preds = self.init_model(train_x)
-        self.predictions_by_round = [self.curr_preds] 
+        self.predictions_by_round = [np.copy(self.curr_preds)] 
 
         # bookkeeping for final predictor
         self.debias_conditions = []
@@ -22,14 +22,18 @@ class Debiased_model:
 
     def predict(self, xs):
 
-        init_preds = self.init_model(xs)
-        policies = self.policy.run_given_preds(init_preds)  
+        preds = self.init_model(xs)
         
-        for t in range(len(self.depth)):
-            coord, val = self.debias_conditions[t]
+        for t in range(self.depth):        
+            coord, val, db_policy = self.debias_conditions[t]
+            # get policy induced by current round's predictions 
+            curr_policy = db_policy.run_given_preds(preds)
+            # pull out the indices where the policy induces val at the target coordinate 
+            indices = np.arange(len(curr_policy))[curr_policy[:,coord] == val]
             bias = self.bias_array[t]
-            indices = np.arange(len(policies))[policies[:,coord] == val]
-            init_preds[indices] -= bias 
+            preds[indices] -= bias 
+        
+        return preds
 
     def debias(self, train_y, debiasing_policy):
         
@@ -42,7 +46,7 @@ class Debiased_model:
             # event to bucket with
             coord = t%debiasing_policy.dim
             val = debiasing_policy.coordinate_values[t%len(debiasing_policy.coordinate_values)]
-            self.debias_conditions.append([coord,val])
+            self.debias_conditions.append([coord,val,debiasing_policy])
             
             # get policy induced by current round's predictions
             curr_policy = debiasing_policy.run_given_preds(self.curr_preds)
@@ -66,6 +70,7 @@ class Debiased_model:
                 self.bias_array.append(np.zeros(self.prediction_dim))
 
             if self._halt(t):
+                self.depth = t
                 break 
  
     def _halt(self, t):
@@ -74,7 +79,7 @@ class Debiased_model:
         if np.all(self.bias_array[t] == 0.0):
             self.halting_cond += 1
             if self.halting_cond == self.n_conditions:
-                print("Halting early at round ", t)
+                print("Halting early at round ", t+1)
                 return True
             else: 
                 return False
