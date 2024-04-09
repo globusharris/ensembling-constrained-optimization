@@ -149,68 +149,61 @@ class Debiased_model:
         return False
 
 
+class Ensembled_model:
 
-    # def debias_wrt_ensemble(self, train_y, debiasing_policy, other_policies, self_debias=False):
+    def __init__(self, max_depth, prediction_dim, init_model, init_policy, train_x, train_y):
+        self.max_depth = max_depth #number of rounds of debiasing 
+        self.prediction_dim = prediction_dim #dimension of predictions
         
-    #     other_policies_rev = []
-    #     # get other policies' predictions and predicted revenue
-    #     for pi in other_policies:
-    #         preds = pi.model(self.train_x)
-    #         allocation = pi.run_given_preds(preds)
-    #         pred_rev = np.einsum('ij,ij->i', preds, allocation)
-    #         other_policies_rev.append(pred_rev)
-
-       
-    #     # if not debiasing wrt own model, then can evaluate the debiasing policy once. Otherwise, the policy 
-    #     # changes each round so have to update within the debiasing
-    #     curr_policy = debiasing_policy.run(self.train_x)
+        # initializing the model 
+        self.init_model = init_model
+        self.policy = init_policy
+        self.curr_preds = self.init_model(train_x)
         
-    #     # set early stopping condition for if last #debiasing-conditions rounds all had 0 bias
-    #     self.n_conditions = len(debiasing_policy.coordinate_values)*debiasing_policy.dim*len(other_policies+1)
-        
+        self.curr_depth = 0
+        self.train_x = train_x
 
-    #     # run debiasing until debiased or reached max depth
-    #     t = self.curr_depth
-    #     i=0 # indexing for iterating through coordinates and values
-    #     while t <= self.max_depth:
-    #         # event to bucket with
-    #         coord = i%debiasing_policy.dim
-    #         val = debiasing_policy.coordinate_values[i%len(debiasing_policy.coordinate_values)]
-    #         maximal_policy = 
-    #         self.debias_conditions.append([coord,val,debiasing_policy])
-            
-    #         # get debiasing policy's predictions
-    #         if self_debias:
-    #             curr_policy = debiasing_policy.run_given_preds(self.curr_preds)
-    #         # pull out the indices where the policy induces val at the target coordinate 
-    #         indices = np.arange(len(curr_policy))[curr_policy[:,coord] == val]
-    #         self.indices_by_round.append(indices) #for debugging
-            
-    #         if len(indices)!=0:
-    #             # calculate bias on those indices 
-    #             bias = np.mean(self.curr_preds[indices], axis=0) - np.mean(train_y[indices], axis=0)
-    #             # zeroing out floating point issues
-    #             if np.all(np.isclose(bias, np.zeros(len(bias)), atol=1e-8)):
-    #                 bias = np.zeros(len(bias))
-    #             self.bias_array.append(bias)
-    #             self.curr_preds[indices] -= bias 
-    #             # storing predictions over rounds for fun.
-    #             self.predictions_by_round.append(np.copy(self.curr_preds)) #slicing to force new copy that isn't mutable
-    #         else:
-    #             # to keep bookkeeping consistent for halting cond, storing 0 even if bucket empty
-    #             self.bias_array.append(np.zeros(self.prediction_dim))
+        # bookkeeping for final predictor
+        self.predictions_by_round = [np.copy(self.curr_preds)] 
+        self.debias_conditions = []  # length t; each index has [coordinate, value, hypotheses, policies], where hypotheses and policies are arrays of length k 
+        self.bias_array = []  # length t; at each index is a numpy array of shape k x pred_dim 
+        self.indices_by_round = [] #for debugging
+        self.mses_by_policy = [mse(train_y, self.curr_preds, multioutput='raw_values')]
 
-    #         if self._halt(t):
-    #             ## can get rid of the last n_conditions rounds because bias was 0 for those
-    #             self.curr_depth = t - self.n_conditions + 1
-    #             self.bias_array = self.bias_array[:-self.n_conditions]
-    #             self.predictions_by_round = self.predictions_by_round[:-self.n_conditions]
-    #             self.indices_by_round = self.indices_by_round[:-self.n_conditions]
-    #             break 
-
-    #         t += 1
-    #         i += 1
-
+        self.n_conditions = None 
+        self.halting_cond = 0
+        self.maxed_depth = False #flag for if max depth was reached
     
+    def predict(self, xs):
 
+        """
+        xs: n x prediction_dim array of values to predict on.
+
+        Let k be the number of policies that debiasing was done wrt
+        """
+
+        preds = self.init_model(xs)
+        
+        for t in range(self.curr_depth):        
+            # because we need to evaluate which policy has the highest self-evaluated revenue, 
+            # need to know both what each policy is *and* what the hypothesis used to induce that
+            # policy was, so that we can evaluate this revenue expression
+
+            coord, val, hypotheses, policies = self.debias_conditions[t]
+
+            pred_by_h = [h(xs) for h in hypotheses] # array of length k, where each entry is of shape n x pred_dim
+            policies_by_h = [policies[i].run_given_preds(pred_by_h[i]) for i in range(len(policies))] # array of length k, where each entry is of shape n x pred_dim
+            self_assessed_revs =  np.array([np.einsum('ij,ij->i', pred_by_h[i], policies_by_h[i]) for i in range(len(policies))]) # array of length k, where each entry is of shape n, and is dot product of pred and policy vector
+            maximal_policy = np.argmax(self_assessed_revs, axis=0) # length n; returns index of the maximal policy
+            
+            # get policy induced by current round's predictions 
+            curr_policy = self.policy.run_given_preds(preds)
+            # pull out the indices where the policy induces val at the target coordinate 
+            indices = np.arange(len(curr_policy))[curr_policy[:,coord] == val]
+            
+            # if coord, val matches, subtract off whichever bias term 
+            # make sure bias is np array or this doesn't work
+            preds[indices] -= self.bias_array[t][maximal_policy[indices]] 
+        
+        return preds
 
