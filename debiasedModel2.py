@@ -54,8 +54,9 @@ class Debiased_model:
         i=0 # indexing for iterating through coordinates and values
         while t <= self.max_depth:
             # event to bucket with
-            coord = i%debiasing_policy.dim
-            val = debiasing_policy.coordinate_values[i%len(debiasing_policy.coordinate_values)]
+            n_by_coord = len(debiasing_policy.coordinate_values)
+            coord = (t//n_by_coord) % self.prediction_dim
+            val = debiasing_policy.coordinate_values[i%n_by_coord]
             self.debias_conditions.append([coord,val,debiasing_policy])
             
             # get debiasing policy's predictions
@@ -159,7 +160,6 @@ class Ensembled_model:
         self.init_model = init_model
         self.policy = init_policy
         self.curr_preds = self.init_model(train_x)
-        
         self.curr_depth = 0
         self.train_x = train_x
 
@@ -206,4 +206,14 @@ class Ensembled_model:
             preds[indices] -= self.bias_array[t][maximal_policy[indices]] 
         
         return preds
+
+    def debias_wrt_max(self, train_y, all_policies):
+        
+        t = self.curr_depth
+        i=0 # indexing for iterating through coordinates and values
+        while t <= self.max_depth:
+            coord = i%self.prediction_dim
+            val = self.policy.coordinate_values[i%len(self.policy.coordinate_values)]
+            print(coord, val)
+
 
