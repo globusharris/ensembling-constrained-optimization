@@ -163,6 +163,7 @@ class Ensembled_model:
         self.curr_preds = self.init_model(train_x)
         self.curr_depth = 0
         self.train_x = train_x
+        self.train_y = train_y
 
         # bookkeeping for final predictor
         self.predictions_by_round = [np.copy(self.curr_preds)] 
@@ -212,12 +213,13 @@ class Ensembled_model:
         
         t = self.curr_depth
         i=0 # indexing for iterating through coordinates and values
-        while t <= self.max_depth:
+        while t < self.max_depth:
             n_by_coord = len(self.policy.coordinate_values)
             coord = (t//n_by_coord) % self.prediction_dim
             val = self.policy.coordinate_values[i%n_by_coord]
-            # deep copy because if the models change later due to their debiasing, need to be sure following their predictions at this stage. 
-            self.debias_conditions.append([coord, val, copy.deepcopy(hypotheses), copy.deepcopy(all_policies)])
+            # To Do: the below may break if the hypotheses are later modified by their own debiasing.
+            # But I can't get deepcopying to work.
+            self.debias_conditions.append([coord, val, hypotheses, policies])
 
             # calculate bias array conditioned on coord x val and which policy is maximal
 
@@ -232,8 +234,8 @@ class Ensembled_model:
             # calculate the bias over regions where each of the k policies is maximal
             bias_by_policy = []
             for i in range(len(policies)):
-                flag = [curr_policy[:coord] == val] & (maximal_policy == i)
-                if sum(flag) is not 0:
+                flag = (curr_policy[:,coord] == val) & (maximal_policy == i)
+                if sum(flag)!=0:
                     bias = np.mean(self.curr_preds[flag] - self.train_y[flag], axis=0)
                     bias_by_policy.append(bias)
                     self.curr_preds[flag] -= bias
