@@ -1,4 +1,5 @@
 import numpy as np
+import copy
 from sklearn.metrics import mean_squared_error as mse
 
 class Debiased_model:
@@ -207,13 +208,42 @@ class Ensembled_model:
         
         return preds
 
-    def debias_wrt_max(self, train_y, all_policies):
+    def debias_wrt_max(self, hypotheses, policies):
         
         t = self.curr_depth
         i=0 # indexing for iterating through coordinates and values
         while t <= self.max_depth:
-            coord = i%self.prediction_dim
-            val = self.policy.coordinate_values[i%len(self.policy.coordinate_values)]
-            print(coord, val)
+            n_by_coord = len(self.policy.coordinate_values)
+            coord = (t//n_by_coord) % self.prediction_dim
+            val = self.policy.coordinate_values[i%n_by_coord]
+            # deep copy because if the models change later due to their debiasing, need to be sure following their predictions at this stage. 
+            self.debias_conditions.append([coord, val, copy.deepcopy(hypotheses), copy.deepcopy(all_policies)])
+
+            # calculate bias array conditioned on coord x val and which policy is maximal
+
+            pred_by_h = [h(self.train_x) for h in hypotheses] # array of length k, where each entry is of shape n x pred_dim
+            policies_by_h = [policies[i].run_given_preds(pred_by_h[i]) for i in range(len(policies))] # array of length k, where each entry is of shape n x pred_dim
+            self_assessed_revs =  np.array([np.einsum('ij,ij->i', pred_by_h[i], policies_by_h[i]) for i in range(len(policies))]) # array of length k, where each entry is of shape n, and is dot product of pred and policy vector
+            maximal_policy = np.argmax(self_assessed_revs, axis=0) # length n; returns index of the maximal policy
+
+            # get policy induced by current round's predictions 
+            curr_policy = self.policy.run_given_preds(self.curr_preds)
+
+            # calculate the bias over regions where each of the k policies is maximal
+            bias_by_policy = []
+            for i in range(len(policies)):
+                flag = [curr_policy[:coord] == val] & (maximal_policy == i)
+                if sum(flag) is not 0:
+                    bias = np.mean(self.curr_preds[flag] - self.train_y[flag], axis=0)
+                    bias_by_policy.append(bias)
+                    self.curr_preds[flag] -= bias
+                else:
+                    # just store 0 if bucket is empty
+                    bias_by_policy.append(np.zeros(self.prediction_dim))
+            self.bias_array.append(bias_by_policy)
+            self.predictions_by_round.append(np.copy(self.curr_preds))
+
+            t+=1
+            i+=1
 
 
