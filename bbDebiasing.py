@@ -1,195 +1,140 @@
 import numpy as np
-import copy
-from sklearn.metrics import mean_squared_error as mse
 
 class bbDebias:
     """
     "Bias Bounty" style method of iteratively debiasing a predictor with respect to a series of policies
     """
     
-    def __init__(self, max_depth, prediction_dim, init_model, train_x, train_y):
-        self.max_depth = max_depth #number of rounds of debiasing 
-        self.prediction_dim = prediction_dim #dimension of predictions
-        
-        # initializing the model 
+    def __init__(self, init_model, policy, train_x, train_y, max_depth, tolerance):
+        """
+        init_models: Single initial model, which debiasing will be done with respect to. 
+        policies: A single policy induced by the initial model. Should be a policy object. 
+        train_x: training data features of length n
+        train_y: training data labels of length n
+        max_depth: maximal depth of the debiasing process. 
+        tolerance: tolerance parameter for stopping debiasing
+
+        Notes:
+        - Assuming that each of the policies takes the same possible values as the initializing policy, 
+          and that they are the same for every coordinate. 
+        """
+
         self.init_model = init_model
-        self.curr_preds = self.init_model(train_x)
-        self.predictions_by_round = [np.copy(self.curr_preds)] 
+        self.policy = policy
+        self.train_x = train_x 
+        self.train_y = train_y
+        self.max_depth = max_depth
+        self.tolerance = tolerance
+        self.pred_dim = len(train_y[0]) #prediction dimension
+
+        self.models = [] # list of all k models used for debiasing
+        self.policies = [] # list of all k policies induced by models used for debiasing
+
+        self.n_models = 0
+        self.n_values = self.policy.n_vals
+        self.policy_vals = self.policy.coordinate_values
+        self.n_conditions = 0
+
         self.curr_depth = 0
-        self.train_x = train_x
-
-        # bookkeeping for final predictor
-        self.debias_conditions = []
-        self.bias_array = [] 
-        self.indices_by_round = [] #for debugging/tracking size of groups, etc
-        self.mses_by_policy = [mse(train_y, self.curr_preds, multioutput='raw_values')]
-
-        self.n_conditions = None 
+        self.debias_conditions = [] # shape curr_depth * 3; row i is (model/policy index, coordinate, value) used for that round of debiasing
+        self.bias_array = [] # shape curr_depth * pred dim; row i is bias vector for the conditioning event described in row i of self.debias_conditions
+        self.curr_preds = self.init_model(train_x) # current predictions of debiased model
+        self.predictions_by_round = [np.copy(self.curr_preds)] # length self.curr_depth, entry i is predictions of model on ith round of debiasing on training data
+        self.policy_preds = [] # shape k*n*pred_dim; list of induced policies of all k models on the training data
+        self.probabilities = [] # length curr_depth; entry i is empirical weight of the conditioning event of round i of debiasing 
         self.halting_cond = 0
-        self.maxed_depth = False #flag for if max depth was reached
-
-    def predict(self, xs):
-
-        """
-        Use debiased predictor to get predictions on xs.
-        """
-
-        preds = self.init_model(xs)
-        
-        for t in range(self.curr_depth):        
-            coord, val, db_policy = self.debias_conditions[t]
-            # get policy induced by current round's predictions 
-            curr_policy = db_policy.run(xs)
-            # pull out the indices where the policy induces val at the target coordinate 
-            indices = np.arange(len(curr_policy))[curr_policy[:,coord] == val]
-            bias = self.bias_array[t]
-            preds[indices] -= bias 
-        
-        return preds
     
-    def debias(self, train_y, policies, own_policy, depth, tolerance):
+    def debias(self, models, policies):
         """
-        Given an input list of policies, debias initial policy until either maximal depth is reached or model is self-consistent
-        and unbiased with respect to all of the policies.
-        """
-        i = 0
-        n_policies = len(policies) + 1 #number of things we're debiasing wrt, including self-consistency check
-        self_consistency = False
-        for t in range(depth):
+        Debias model according to collection of models and policies. Additionally, enforce self-consistency of final model. 
 
-            if self.maxed_depth:
+        models: list of k models to debias with respect to.
+        policies: list of k policies associated with each of the k models.
+        """
+
+        # Add models and policies to global list, and update number of conditioning events for debiasing. 
+        self.models.extend(models)
+        self.policies.extend(policies)
+        self.n_models = len(self.models) 
+        self.n_conditions = (self.n_models+1) * self.n_values * self.pred_dim #+1 to deal w 
+
+        # Evaluate models and policies induced by models
+        preds = [model(self.train_x) for model in models]
+        pols = [policies[i].run_given_preds(preds[i]) for i in range(len(models))]
+        self.policy_preds.extend(pols)
+
+        for i in range(self.max_depth):
+            # Get the conditions to debias with respect to in this round, and store.
+            model_index = self.curr_depth % (self.n_models + 1)
+            coord = (self.curr_depth//(self.n_values*(self.n_models+1))) % self.pred_dim 
+            val = self.policy_vals[(self.curr_depth // (self.n_models+1)) % self.n_values]
+            self.debias_conditions.append([model_index, coord, val])
+
+            # Get the policy used for debiasing. 
+            if model_index >= self.n_models: # if running self-consistency check
+                curr_policy = self.policy.run_given_preds(self.curr_preds)
+            else: # otherwise
+                curr_policy = self.policy_preds[model_index]
+            
+            # Calculate bias for this event
+            flag = curr_policy[:,coord] == val
+            self.probabilities.append(sum(flag)/len(flag))
+            if sum(flag)!=0:
+                bias = np.mean(self.curr_preds[flag] - self.train_y[flag], axis=0)
+                self.bias_array.append(bias)
+                self.curr_preds[flag] -= bias
+            else:
+                self.bias_array.append(np.zeros(self.pred_dim))   
+            
+            self.predictions_by_round.append(np.copy(self.curr_preds))
+            
+            if self._halt():
+                print("Hit tolerance; halting debiasing.")
                 break
 
-            if self_consistency:
-                # run self-consistency check
-                own_policy.model = self
-                self.debias_helper(train_y, own_policy, self_debias=True)
-                self_consistency=False
-                
-                if self._halt(n_policies, tolerance):
-                    print("Hit tolerance; halting debiasing.")
-                    break
-
-            else:
-                # debiasing wrt other policies
-                self.debias_helper(train_y, policies[i%len(policies)], self_debias=False)
-                i += 1
-                if i%len(policies)==0:
-                    self_consistency=True
-            
+            self.curr_depth +=1
+        
+        if self.curr_depth == self.max_depth:
+            print("Maximum depth reached.")
+        
         return None
     
-    def _halt(self, n_policies,tolerance):
+    def _halt(self):
         """
-        Halting condition for the debiasing process. It checks the last k iterations' improvement in MSE, and
-        halts if all of them were smaller than the tolerance. 
-
-        Note: k = number of policies which you are debiasing with respect to. If you only checked the previous round, rather than
-        the last k, you'd only know if the last policy you debiased with respect to led to improvement in squared error. It could
-        be that you can make no more improvement with respect to that policy, but that there is some other policy which does
-        lead to improvement, hence the condition checking all of them.
+        Stopping condition for debiasing. Verifies if the last n_conditions rounds had sufficiently small bias to halt early.
         """
-        improvement = -1*np.diff(self.mses_by_policy[-(n_policies+1):], axis=0) #+1 bc need to get difference w previous round
-        if np.max(improvement) < tolerance:
-            return True
-        return False
-
-    def debias_helper(self, train_y, debiasing_policy, self_debias=False):
-        """
-        Debiasing on a single policy. This could either be own policy, in which case you have to enforce self-consistency,
-        or it could be anothers'. 
-
-        ToDo? Move self-consistency check elsewhere? This code is quite messy. 
-        """
-        
-        # if not debiasing wrt own model, then can evaluate the debiasing policy once. Otherwise, the policy 
-        # changes each round so have to update within the debiasing
-        if not self_debias:
-            curr_policy = debiasing_policy.run(self.train_x)
-        
-        # set early stopping condition for if last #debiasing-conditions rounds all had 0 bias
-        self.n_conditions = len(debiasing_policy.coordinate_values)*debiasing_policy.dim
-        
-        # run debiasing until debiased or reached max depth
-        t = self.curr_depth
-        i=0 # indexing for iterating through coordinates and values
-        while t <= self.max_depth:
-            # event to bucket with
-            n_by_coord = len(debiasing_policy.coordinate_values)
-            coord = (t//n_by_coord) % self.prediction_dim
-            val = debiasing_policy.coordinate_values[i%n_by_coord]
-            
-            if self_debias:
-                # if doing self-debiasing, create a new version of the debiasing policy that actually uses current predictions
-                debiasing_policy.model = self.predict
-
-            self.debias_conditions.append([coord,val,copy.deepcopy(debiasing_policy)])
-            
-            # get debiasing policy's predictions
-            if self_debias:
-                curr_policy = debiasing_policy.run_given_preds(self.curr_preds)
-            # pull out the indices where the policy induces val at the target coordinate 
-            indices = np.arange(len(curr_policy))[curr_policy[:,coord] == val]
-            self.indices_by_round.append(indices) #for debugging
-            
-            if len(indices)!=0:
-                # calculate bias on those indices 
-                bias = np.mean(self.curr_preds[indices], axis=0) - np.mean(train_y[indices], axis=0)
-                # zeroing out floating point issues
-                if np.all(np.isclose(bias, np.zeros(len(bias)), atol=1e-8)):
-                    bias = np.zeros(len(bias))
-                self.bias_array.append(bias)
-                self.curr_preds[indices] -= bias 
-                # storing predictions over rounds for fun.
-                self.predictions_by_round.append(np.copy(self.curr_preds)) #slicing to force new copy that isn't mutable
-            else:
-                # to keep bookkeeping consistent for halting cond, storing 0 even if bucket empty
-                self.bias_array.append(np.zeros(self.prediction_dim))
-
-            if self._simple_halt(t):
-                # recalculate mse: 
-                self.mses_by_policy.append(mse(train_y, self.curr_preds, multioutput='raw_values'))
-
-                ## can get rid of the last n_conditions rounds because bias was 0 for those
-                self.curr_depth = t - self.n_conditions + 1
-                self.bias_array = self.bias_array[:-self.n_conditions]
-                self.predictions_by_round = self.predictions_by_round[:-self.n_conditions]
-                self.indices_by_round = self.indices_by_round[:-self.n_conditions]
-                self.halting_cond = 0 # reseting for next round of debiasing
-                break 
-
-            t += 1
-            i += 1
-    
-    def _simple_halt(self, t):
-        """
-        Halting condition for debiasing a single policy. If, looking at all coord x val pairs, no bias was found, then halts.
-        Also halts if maximal depth has been reached. 
-        To Do: should add tolerance condition to this. 
-        """
-        # halt if no bias found on last set of rounds
-        if t == self.max_depth:
-                print("Maximal depth reached; halting debiasing .")
-                self.maxed_depth = True
-                return True 
-        
-        if np.all(self.bias_array[t] == 0.0):
+        violation = self.probabilities[self.curr_depth] * max(self.bias_array[self.curr_depth])
+        if violation < self.tolerance:
             self.halting_cond += 1
-            if self.halting_cond == self.n_conditions:
-                return True
-            else: 
-                return False
-        else:
+        else: 
             self.halting_cond = 0
-            return False
-    
-    
 
+        if self.halting_cond == self.n_conditions:
+            return True
+        
+        return False 
 
+    def predict(self, xs):
+        """ 
+        Run final debiased predictor on xs.
+        """
+        
+        curr_preds = self.init_model(xs)
+        model_preds = [model(xs) for model in self.models] #predictions of the models we're debiasing with respect to
+        policy_preds = [self.policies[i].run_given_preds(model_preds[i]) for i in range(self.n_models)]
+        
+        transcript = []
+        for i in range(self.curr_depth):
+            model_index, coord, val = self.debias_conditions[i]
 
-
-
+            # Get the policy used for debiasing. 
+            if model_index >= self.n_models: # if running self-consistency check
+                curr_policy = self.policy.run_given_preds(curr_preds)
+            else: # otherwise
+                curr_policy = policy_preds[model_index]
             
-            
+            flag = curr_policy[:,coord] == val
+            curr_preds[flag] -= self.bias_array[i]
+            transcript.append(np.copy(curr_preds))
 
-
+        return curr_preds, transcript

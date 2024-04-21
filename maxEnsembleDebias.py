@@ -9,50 +9,63 @@ class EnsembledModel:
     conditioning on which policy induced by the models is maximal and a coord x val pair. 
     """
 
-    def __init__(self, init_models, policies, train_x, train_y, max_depth):
+    def __init__(self, init_models, policies, train_x, train_y, max_depth, tolerance):
         """
         init_models: An array of k different models for the prediction task. 
         policies: An array of k policies which are induced by those models. These should be policy objects.
         train_x: training data features
         train_y: training data labels
         max_depth: maximal depth of the debiasing process. 
+        tolerance: tolerance parameter for stopping debiasing
 
-        Currently, max_depth acts as the stopping condition for the model. If it is unbiased earlier, it will not halt. 
+        Notes:
+        - Running under the assumption that each of the policies takes the same possible values, and that they are the same
+          for every coordinate. 
         """
 
-        self.init_models = init_models
+        self.init_models = init_models 
         self.policies = policies 
         self.train_x = train_x
         self.train_y = train_y
         self.max_depth = max_depth
+        self.tolerance = tolerance
         self.pred_dim = len(train_y[0]) # prediction dimension
+
         
-        self.n_models = len(self.init_models)
-        self.n_values = self.policies[0].n_vals
-        self.policy_vals = self.policies[0].coordinate_values
+        self.n_models = len(self.init_models)   # number of models
+        self.n_values = self.policies[0].n_vals # number of values policy can take
+        self.policy_vals = self.policies[0].coordinate_values # list of possible values any coordinate of policy can take
+        self.n_conditions = self.n_models * self.n_values * self.pred_dim # total number of conditioning events 
         
         self.curr_depth = 0
-        self.debias_conditions = []
-        # keep current predictions *of all k models at once*
-        self.curr_preds = [model(self.train_x) for model in self.init_models] 
-        # keep track of bias array, which has k entries per round of debiasing
-        self.bias_array = []
-        self.predictions_by_round = [np.copy(self.curr_preds)]
+        self.debias_conditions = [] # Shape self.curr_depth*3. Row i is (model_index, coordinate, value) tuple for conditining events, where model_index is index of model with which bias is measured wrt in that round.
+        self.curr_preds = [model(self.train_x) for model in self.init_models] # length k; entry i are most up-to-date (most debiased) predictions of model i on the training data
+        self.predictions_by_round = [np.copy(self.curr_preds)] # shape self.curr_depth * k + 1; entry (i,j) is predictions on training data of model j after i rounds of debiasing
+        self.bias_array = [] # shape self.curr_depth * k; entry (i,j) is bias of target model (described in row i of debias_conditions) when policy j is maximal and policy i has target val at coord
+        self.probabilities = [] # shape self.curr_depth * k; entry (i,j) is the empirical weight of the conditioning event at round i of debiasing when model j is maximal and the conditions described in row i of debias conditions are met. 
+
+        self.halting_cond = 0
 
     def debias(self):
         """
-        W better data structure
+        Debiases all k of the initial models.
+
+        At each round of the debiasing, a model to debias from the k models is picked, called model_index,
+        along with a coordinate and value to predicate the conditioning. Then, for *each* of the k models, 
+        call  that model j, the bias of the model_index model is determined on the subset of points for which 
+        the model_index model has value "val" at coordinate "coord" *and* such that policy induced by model j 
+        is the policy with highest self-assessed revenue.  
+
+        Currently, this terminates when the maximum depth is reached, and there is no additional stopping criterion
+        (e.g. not checking for approximate unbiasedness.)
 
         """
         for i in range(self.max_depth):
             
-
             # Get the conditions to debias with respect to in this round, and store.
-
             model_index = self.curr_depth % self.n_models 
             coord = (self.curr_depth//(self.n_values* self.n_models)) % self.pred_dim 
             val = self.policy_vals[(self.curr_depth // self.n_models) % self.n_values]
-            
             self.debias_conditions.append([model_index, coord, val])
 
             # Evaluate models, determine the policy associated w each and that policy's self-assessed revenue
@@ -60,10 +73,12 @@ class EnsembledModel:
             self_assessed_revs =  np.array([np.einsum('ij,ij->i', self.curr_preds[i], policies_by_models[i]) for i in range(self.n_models)]) # array of length k, where each entry is of shape n, and is dot product of pred and policy vector
             maximal_policy = np.argmax(self_assessed_revs, axis=0) # length n; returns index of the maximal policy
             curr_policy = policies_by_models[model_index]
-            bias_this_round= [] # will be k-dimensional, one entry for when each of the k policies is maximal
             
-            for i in range(self.n_models):
-                flag = (curr_policy[:,coord] == val) & (maximal_policy == i)
+            bias_this_round= [] # will be k-dimensional, jth entry is bias when jth policy is maximal
+            probs = [] # k-dimensional, jth entry is empirical probability of event where jth policy is maximal
+            for j in range(self.n_models):
+                flag = (curr_policy[:,coord] == val) & (maximal_policy == j)
+                probs.append(sum(flag)/len(flag)) # empirical probability of being in the target conditioning event
                 if sum(flag)!=0:
                     bias = np.mean(self.curr_preds[model_index][flag] - self.train_y[flag], axis=0)
                     bias_this_round.append(bias)
@@ -73,13 +88,45 @@ class EnsembledModel:
                     bias_this_round.append(np.zeros(self.pred_dim))
             self.bias_array.append(np.array(bias_this_round))
             self.predictions_by_round.append(np.copy(self.curr_preds))
+            self.probabilities.append(probs)
 
-            self.curr_depth += 1    
+            if self._halt():
+                print("Hit tolerance; halting debiasing.")
+                break
+
+            self.curr_depth += 1 
+        
+        if self.curr_depth == self.max_depth:
+            print("Maximum depth reached.")
+
+        return None 
+    
+    def _halt(self):
+        """
+        Stopping condition for debiasing. Verifies if the bias of each of the k models is within tolerance over all
+        of the possible coordinate * value pairs. 
+        """   
+        
+        max_bias = [max(self.bias_array[self.curr_depth][i]) for i in range(self.n_models)] # max bias term for each of the k debiasing steps
+        violations = np.array([self.probabilities[self.curr_depth][i] * max_bias[i] for i in range(self.n_models)]) # max bias terms weighted by empirical probability of event
+        
+        if np.all(violations < self.tolerance):  # if all violations are less than the tolerance condition
+            self.halting_cond += 1          # add to counter for halting 
+        else:
+            self.halting_cond = 0           # otherwise, reset counter to 0
+        
+        if self.halting_cond == self.n_conditions:      # if last n_conditions rounds didn't have sufficiently large violation, stop.
+            return True
+        
+        return False
     
     def predict(self, xs):
         """
-        W better data structure
-        Evaluate all k models in parallel
+        Use debiased predictors to get predictions on x. 
+
+        Outputs:
+        curr_preds: A k-dimensional vector, where entry i is all of the predictions on the input xs of debiased model i.
+        transcript: self.curr_depth * k dimensional matrix, where entry (i,j) is the predictions of model j after i rounds of debiasing. 
         """
         
         # evaluate all k initial models on the data
