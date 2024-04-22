@@ -30,6 +30,7 @@ class EnsembledModel:
         self.max_depth = max_depth
         self.tolerance = tolerance
         self.pred_dim = len(train_y[0]) # prediction dimension
+        self.n = len(train_x)
 
         
         self.n_models = len(self.init_models)   # number of models
@@ -43,8 +44,11 @@ class EnsembledModel:
         self.predictions_by_round = [np.copy(self.curr_preds)] # shape self.curr_depth * k + 1; entry (i,j) is predictions on training data of model j after i rounds of debiasing
         self.bias_array = [] # shape self.curr_depth * k; entry (i,j) is bias of target model (described in row i of debias_conditions) when policy j is maximal and policy i has target val at coord
         self.probabilities = [] # shape self.curr_depth * k; entry (i,j) is the empirical weight of the conditioning event at round i of debiasing when model j is maximal and the conditions described in row i of debias conditions are met. 
-
         self.halting_cond = 0
+
+        self.max_policy_index_by_round = []
+        self.meta_policy_choice_by_round = []
+        self.meta_model_pred_by_round = []
 
     def debias(self):
         """
@@ -69,11 +73,17 @@ class EnsembledModel:
             self.debias_conditions.append([model_index, coord, val])
 
             # Evaluate models, determine the policy associated w each and that policy's self-assessed revenue
-            policies_by_models = [self.policies[i].run_given_preds(self.curr_preds[i]) for i in range(self.n_models)]      
+            policies_by_models = np.array([self.policies[i].run_given_preds(self.curr_preds[i]) for i in range(self.n_models)])     
             self_assessed_revs =  np.array([np.einsum('ij,ij->i', self.curr_preds[i], policies_by_models[i]) for i in range(self.n_models)]) # array of length k, where each entry is of shape n, and is dot product of pred and policy vector
             maximal_policy = np.argmax(self_assessed_revs, axis=0) # length n; returns index of the maximal policy
             curr_policy = policies_by_models[model_index]
-            
+
+            # Track what the meta policy would choose at this round
+            self.max_policy_index_by_round.append(maximal_policy)
+            self.meta_policy_choice_by_round.append(policies_by_models[maximal_policy, np.arange(policies_by_models.shape[1]),:])
+            self.meta_model_pred_by_round.append(np.array(self.curr_preds)[maximal_policy, np.arange(self.n),:])
+           
+            # Debias model
             bias_this_round= [] # will be k-dimensional, jth entry is bias when jth policy is maximal
             probs = [] # k-dimensional, jth entry is empirical probability of event where jth policy is maximal
             for j in range(self.n_models):
@@ -86,6 +96,7 @@ class EnsembledModel:
                 else:
                     # just store 0 if bucket is empty
                     bias_this_round.append(np.zeros(self.pred_dim))
+
             self.bias_array.append(np.array(bias_this_round))
             self.predictions_by_round.append(np.copy(self.curr_preds))
             self.probabilities.append(probs)
@@ -129,17 +140,32 @@ class EnsembledModel:
         transcript: self.curr_depth * k dimensional matrix, where entry (i,j) is the predictions of model j after i rounds of debiasing. 
         """
         
+        n = len(xs)
+
         # evaluate all k initial models on the data
         curr_preds = [model(xs) for model in self.init_models]
-        transcript = [np.copy(curr_preds)] # for plotting etc., output predictions over each round
+
+        class Transcript:
+            def __init__(self):
+                self.preds = []
+                self.max_policy_index_by_round = []
+                self.meta_policy_choice_by_round = []
+                self.meta_model_pred_by_round = []
+        
+        transcript = Transcript()
+        transcript.preds.append(np.copy(curr_preds))
 
         for i in range(self.curr_depth):
             # determine what the conditioning event for this round was
             model_index, coord, val = self.debias_conditions[i]
             # determine policy and policy's self assessed revenue for each model
-            policies_by_models = [self.policies[i].run_given_preds(curr_preds[i]) for i in range(self.n_models)]      
+            policies_by_models = np.array([self.policies[i].run_given_preds(curr_preds[i]) for i in range(self.n_models)])      
             self_assessed_revs =  np.array([np.einsum('ij,ij->i', curr_preds[i], policies_by_models[i]) for i in range(self.n_models)])
             maximal_policy = np.argmax(self_assessed_revs, axis=0)
+
+            transcript.max_policy_index_by_round.append(maximal_policy)
+            transcript.meta_policy_choice_by_round.append(policies_by_models[maximal_policy, np.arange(policies_by_models.shape[1]),:])
+            transcript.meta_model_pred_by_round.append(np.array(curr_preds)[maximal_policy, np.arange(n)])
 
             # now, update the predictions according to each of the k debiasing events for that round
             curr_policy = policies_by_models[model_index]
@@ -147,6 +173,6 @@ class EnsembledModel:
                 flag = (curr_policy[:,coord] == val) & (maximal_policy == k)
                 curr_preds[model_index][flag] -= self.bias_array[i][k] 
             
-            transcript.append(np.copy(curr_preds))
+            transcript.preds.append(np.copy(curr_preds))
 
         return curr_preds, transcript
