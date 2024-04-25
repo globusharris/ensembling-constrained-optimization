@@ -6,7 +6,7 @@ from sklearn.covariance import empirical_covariance
 def variance_constrained_allocation(predictions, d, tau, covariance, variance_limit):
     """
     Given a prediction for a single context, outputs the optimal solution to the
-    variance-constrained optimization.
+    long-only variance-constrained optimization.
 
     predictions: d-dimensional array of predictions from a single context
     d: dimension of labels
@@ -32,13 +32,16 @@ def variance_constrained_allocation(predictions, d, tau, covariance, variance_li
     true_risk = x.value @ covariance @ x.value.T
     risk_limit = variance_limit
 
+    rounded_solution = np.round(solution, tau) # for now, discretizing the opt solution to tau decimal places
+
     # debugging
     #print("Optimal objective value", obj)
     #print("Optimal variable", solution)
     #print("true risk: ", true_risk)
     #print("risk limit: ", variance_limit)
+    #print("rounded solution: ", rounded_solution)
 
-    return obj, solution, true_risk, risk_limit
+    return obj, rounded_solution, true_risk, risk_limit
 
 
 def main():
@@ -47,16 +50,12 @@ def main():
     predictions = [0, 1, 0, 1, 0, 0, 1]
     dim = 7
     tau = 2 # number of decimal places to discretize to
-    variance_limit = .9
+    variance_limit = 100
     labels = np.random.randn(10, 7)
     ###
 
     covariance = empirical_covariance(labels, assume_centered=False) # gets the empirical variance from labels
     obj, solution, true_risk, risk_limit = variance_constrained_allocation(predictions, dim, tau, covariance, variance_limit)
-
-    solution = np.round(solution, tau) # for now, discretizing the opt solution to tau decimal places
-    #print(solution)
-
 
 if __name__ == "__main__":
     main()
