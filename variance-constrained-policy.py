@@ -24,6 +24,7 @@ def variance_constrained_allocation(predictions, d, tau, covariance, variance_li
     #constraints = [discretization_constraint, x>=0, x @ covariance @ x.T <= variance_limit]
 
     constraints = [x<=1, x>=0, x @ covariance @ x.T <= variance_limit]
+    constraints.append(sum(x)==1)
 
     prob = cp.Problem(objective, constraints)
 
@@ -50,7 +51,7 @@ def main():
     predictions = [0, 1, 0, 1, 0, 0, 1]
     dim = 7
     tau = 2 # number of decimal places to discretize to
-    variance_limit = 100
+    variance_limit = 1
     labels = np.random.randn(10, 7)
     ###
 
