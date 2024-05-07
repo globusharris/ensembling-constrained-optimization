@@ -85,14 +85,14 @@ class VarianceConstrained(Policy):
             x = cp.Variable(self.dim)
             objective = cp.Maximize(x @ preds[i])
             # for some reason, the last constraint isn't actually constraining things to be less than 1? 
-            constraints = [x<=1, x>=0, x @ self.covariance @ x.T <= self.var_limit, x @ np.ones(self.dim) <= 1]
+            constraints = [x<=1, x>=0, x @ self.covariance @ x.T <= self.var_limit, x @ np.ones(self.dim) == 1]
             
             prob = cp.Problem(objective, constraints)
             obj = prob.solve()  
             solution = x.value
-            tau = int(abs(np.log10(self.gran)))
-            #rounded_solution = np.round(solution, tau)
-            #allocation[i] = rounded_solution
-            allocation[i] = solution
+            n_decimals = int(abs(np.log10(self.gran)))
+            truncated_solution = (solution*10**n_decimals//1)/(10**n_decimals)
+            normalized_solution = truncated_solution/sum(truncated_solution)
+            allocation[i] = normalized_solution
         return allocation
 
