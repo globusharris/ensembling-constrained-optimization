@@ -1,10 +1,10 @@
 import numpy as np
 import cvxpy as cp
 from sklearn.covariance import empirical_covariance
-import logging
+import warnings
 
 # supress future warnings from cvxpy
-logging.getLogger('cvxpy').setLevel(logging.ERROR)
+warnings.simplefilter(action='ignore', category=FutureWarning)
 
 class Policy:
 
@@ -75,30 +75,32 @@ class VarianceConstrained(Policy):
         """
         preds: array of predictions, where one row corresponds to a single vector of predictions.
         return: allocation vector for each prediction.
+        
         The allocation vector is computed by constraining the problem to maximize the policy subject to
-        it summing to 1 across all coordinates and, if w is the policy vector, wCw^T <= alpha, where
-        C is the (empirical) covariance matrix of the true ys.
+        it summing to 1 across all coordinates, each allocation term being bounded by 0 and 1, 
+        and, if w is the policy vector, wCw^T <= alpha, where C is the (empirical) covariance matrix of the labels.
         
         It runs this optimization problem separately for each prediction vector that is input. 
         """
-
-        ### Question: is there a way to run this in parallel for each of the predictions that is better?
-        # I feel like there must be. 
 
         allocation = np.zeros((len(preds), self.dim))
         for i in range(len(preds)):
             x = cp.Variable(self.dim)
             objective = cp.Maximize(x @ preds[i])
-            # for some reason, the last constraint isn't actually constraining things to be less than 1? 
-            constraints = [x<=1, x>=0, x @ self.covariance @ x.T <= self.var_limit, x @ np.ones(self.dim) == 1]
-            
+            constraints = [x<=1, # have to allocate between 0 and 1
+                           x>=0, 
+                           x @ np.ones(self.dim) <= 1, # allocation forms a distribution which sums to 1
+                           cp.quad_form(x, self.covariance) <= self.var_limit  # allocation bounded by covariance matrix of ys
+                           ]
+            # constraints = [cp.quad_form(x, self.covariance) <= self.var_limit]
             prob = cp.Problem(objective, constraints)
-            obj = prob.solve()  
+            prob.solve()  
             solution = x.value
             n_decimals = int(abs(np.log10(self.gran)))
             truncated_solution = (solution*10**n_decimals//1)/(10**n_decimals)
             normalized_solution = truncated_solution/sum(truncated_solution)
             allocation[i] = normalized_solution
+
         return allocation
     
 class ElectricTransformer(Policy):
