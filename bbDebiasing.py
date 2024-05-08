@@ -33,6 +33,7 @@ class bbDebias:
         self.n_models = 0
         self.n_values = self.policy.n_vals
         self.policy_vals = self.policy.coordinate_values
+        self.gran = self.policy.gran
         self.n_conditions = 0
 
         self.curr_depth = 0
@@ -77,7 +78,7 @@ class bbDebias:
                 curr_policy = self.policy_preds[model_index]
             
             # Calculate bias for this event
-            flag = curr_policy[:,coord] == val
+            flag = (curr_policy[:,coord] >= val) & (curr_policy[:,coord] < (val + self.gran))
             self.probabilities.append(sum(flag)/len(flag))
             if sum(flag)!=0:
                 bias = np.mean(self.curr_preds[flag] - self.train_y[flag], axis=0)
@@ -133,7 +134,7 @@ class bbDebias:
             else: # otherwise
                 curr_policy = policy_preds[model_index]
             
-            flag = curr_policy[:,coord] == val
+            flag = (curr_policy[:,coord] >= val) & (curr_policy[:,coord] < val + self.gran)
             curr_preds[flag] -= self.bias_array[i]
             transcript.append(np.copy(curr_preds))
 

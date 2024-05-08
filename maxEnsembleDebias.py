@@ -36,6 +36,7 @@ class EnsembledModel:
         self.n_models = len(self.init_models)   # number of models
         self.n_values = self.policies[0].n_vals # number of values policy can take
         self.policy_vals = self.policies[0].coordinate_values # list of possible values any coordinate of policy can take
+        self.gran = self.policies[0].gran # assuming all policies have same granularity
         self.n_conditions = self.n_models * self.n_values * self.pred_dim # total number of conditioning events 
         
         self.curr_depth = 0
@@ -87,7 +88,7 @@ class EnsembledModel:
             bias_this_round= [] # will be k-dimensional, jth entry is bias when jth policy is maximal
             probs = [] # k-dimensional, jth entry is empirical probability of event where jth policy is maximal
             for j in range(self.n_models):
-                flag = (curr_policy[:,coord] == val) & (maximal_policy == j)
+                flag = (curr_policy[:,coord] >= val) & (curr_policy[:,coord] < val + self.gran) & (maximal_policy == j)
                 probs.append(sum(flag)/len(flag)) # empirical probability of being in the target conditioning event
                 if sum(flag)!=0:
                     bias = np.mean(self.curr_preds[model_index][flag] - self.train_y[flag], axis=0)
@@ -170,7 +171,7 @@ class EnsembledModel:
             # now, update the predictions according to each of the k debiasing events for that round
             curr_policy = policies_by_models[model_index]
             for k in range(self.n_models):
-                flag = (curr_policy[:,coord] == val) & (maximal_policy == k)
+                flag = (curr_policy[:,coord] >= val) & (curr_policy[:,coord] < val + self.gran) & (maximal_policy == k)
                 curr_preds[model_index][flag] -= self.bias_array[i][k] 
             
             transcript.preds.append(np.copy(curr_preds))

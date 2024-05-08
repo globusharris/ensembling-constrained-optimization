@@ -1,6 +1,10 @@
 import numpy as np
 import cvxpy as cp
 from sklearn.covariance import empirical_covariance
+import logging
+
+# supress future warnings from cvxpy
+logging.getLogger('cvxpy').setLevel(logging.ERROR)
 
 class Policy:
 
@@ -32,6 +36,7 @@ class Simplex(Policy):
         Policy.__init__(self, dim, model)
         self.name = "simplex"
         self.coordinate_values = [1] 
+        self.gran = 0.1 # this is meaningless for this policy since don't need to worry about binning here, but need in order to match types of other policies
         self.n_vals = len(self.coordinate_values)
     
     def run(self, xs):
@@ -95,4 +100,38 @@ class VarianceConstrained(Policy):
             normalized_solution = truncated_solution/sum(truncated_solution)
             allocation[i] = normalized_solution
         return allocation
+    
+class ElectricTransformer(Policy):
+    
+    def __init__(self, dim, model, gran, alloc_limit):
+        Policy.__init__(self, dim, model)
+        self.name = "electric-transformer"
+        self.gran = gran
+        self.alloc_limit = alloc_limit
+        self.coordinate_values = np.arange(0,1,gran)
+        self.n_vals = len(self.coordinate_values)
+    
+    def run_given_preds(self, preds):
+        allocation = np.zeros((len(preds), self.dim))
+        for i in range(len(preds)):
+            if i%1000==0:
+                print('i', i)
+            x = cp.Variable(self.dim)
+            objective = cp.Maximize(x @ preds[i])
+
+            constraints = [
+                x<=1, # decision variables bounded between 0 and 1
+                x>=0, 
+                cp.sum(x) == 1,
+                cp.multiply(x, preds[i]) <= self.alloc_limit
+                ]
+                # want a constraint that disincentivizes allocations for too big of values...
+                # the above doesn't really do this..
+            prob = cp.Problem(objective, constraints)
+            prob.solve()
+            sol = x.value
+            allocation[i] = sol
+        return allocation
+            
+
 
