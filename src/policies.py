@@ -2,9 +2,25 @@ import numpy as np
 import cvxpy as cp
 from sklearn.covariance import empirical_covariance
 import warnings
+from multiprocessing import Pool
 
 # supress future warnings from cvxpy
 warnings.simplefilter(action='ignore', category=FutureWarning)
+
+# Below code for the multithreaded version of the code, which doesn't seem to like functions being inside of objects. 
+# def covariance_constrained_optimization_problem(args):
+#     pred, covariance, var_limit = args
+#     dim = len(pred)
+#     x = cp.Variable(dim)
+#     objective = cp.Maximize(x @ pred)
+#     constraints = [x<=1, # have to allocate between 0 and 1
+#                     x>=0, 
+#                     x @ np.ones(dim) == 1, # allocation forms a distribution which sums to 1
+#                     cp.quad_form(x, covariance) <= var_limit  # allocation bounded by covariance matrix of ys
+#                     ]
+#     prob = cp.Problem(objective, constraints)
+#     prob.solve(solver=cp.GUROBI, verbose=False) 
+#     return x.value
 
 class Policy:
 
@@ -81,25 +97,25 @@ class VarianceConstrained(Policy):
         and, if w is the policy vector, wCw^T <= alpha, where C is the (empirical) covariance matrix of the labels.
         
         It runs this optimization problem separately for each prediction vector that is input. 
+
+        Pooling causing problems w suppressing stdout, and also for some reason slower than alternative, so tossing for now. 
         """
+        # with Pool() as pool:
+        #     results = pool.map(covariance_constrained_optimization_problem, [(pred, self.covariance, self.var_limit) for pred in preds])
+        # return np.array(results)
 
-        allocation = np.zeros((len(preds), self.dim))
         for i in range(len(preds)):
-            x = cp.Variable(self.dim)
-            objective = cp.Maximize(x @ preds[i])
-            constraints = [x<=1, # have to allocate between 0 and 1
-                           x>=0, 
-                           x @ np.ones(self.dim) == 1, # allocation forms a distribution which sums to 1
-                           cp.quad_form(x, self.covariance) <= self.var_limit  # allocation bounded by covariance matrix of ys
-                           ]
-            prob = cp.Problem(objective, constraints)
-            prob.solve(solver=cp.GUROBI)  
-            solver_status = prob.status
-            #print("Solver status:", solver_status)
-            allocation[i] = x.value
-
-        return allocation
-    
+                x = cp.Variable(self.dim)
+                objective = cp.Maximize(x @ preds[i])
+                constraints = [x<=1, # have to allocate between 0 and 1
+                                x>=0, 
+                                x @ np.ones(self.dim) == 1, # allocation forms a distribution which sums to 1
+                                cp.quad_form(x,self.covariance) <= self.var_limit  # allocation bounded by covariance matrix of ys
+                                ]
+                prob = cp.Problem(objective, constraints)
+                prob.solve(solver=cp.GUROBI, verbose=False) 
+                return x.value
+   
 class ElectricTransformer(Policy):
     
     def __init__(self, dim, model, gran, alloc_limit):
