@@ -89,14 +89,13 @@ class VarianceConstrained(Policy):
             objective = cp.Maximize(x @ preds[i])
             constraints = [x<=1, # have to allocate between 0 and 1
                            x>=0, 
-                           x @ np.ones(self.dim) <= 1, # allocation forms a distribution which sums to 1
+                           x @ np.ones(self.dim) == 1, # allocation forms a distribution which sums to 1
                            cp.quad_form(x, self.covariance) <= self.var_limit  # allocation bounded by covariance matrix of ys
                            ]
-            # constraints = [cp.quad_form(x, self.covariance) <= self.var_limit]
             prob = cp.Problem(objective, constraints)
-            prob.solve(solver='ECOS_BB')  
+            prob.solve(solver=cp.GUROBI)  
             solver_status = prob.status
-            print("Solver status:", solver_status)
+            #print("Solver status:", solver_status)
             allocation[i] = x.value
 
         return allocation
