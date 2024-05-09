@@ -94,12 +94,10 @@ class VarianceConstrained(Policy):
                            ]
             # constraints = [cp.quad_form(x, self.covariance) <= self.var_limit]
             prob = cp.Problem(objective, constraints)
-            prob.solve()  
-            solution = x.value
-            n_decimals = int(abs(np.log10(self.gran)))
-            truncated_solution = (solution*10**n_decimals//1)/(10**n_decimals)
-            normalized_solution = truncated_solution/sum(truncated_solution)
-            allocation[i] = normalized_solution
+            prob.solve(solver='ECOS_BB')  
+            solver_status = prob.status
+            print("Solver status:", solver_status)
+            allocation[i] = x.value
 
         return allocation
     
