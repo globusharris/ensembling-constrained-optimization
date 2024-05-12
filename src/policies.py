@@ -117,38 +117,44 @@ class VarianceConstrained(Policy):
             prob.solve(solver=cp.GUROBI, verbose=False) 
             allocation[i] = x.value
         return allocation
-   
-class ElectricTransformer(Policy):
-    
-    def __init__(self, dim, model, gran, alloc_limit):
-        Policy.__init__(self, dim, model)
-        self.name = "electric-transformer"
-        self.gran = gran
-        self.alloc_limit = alloc_limit
-        self.coordinate_values = np.arange(0,1,gran)
-        self.n_vals = len(self.coordinate_values)
-    
-    def run_given_preds(self, preds):
-        allocation = np.zeros((len(preds), self.dim))
-        for i in range(len(preds)):
-            if i%1000==0:
-                print('i', i)
-            x = cp.Variable(self.dim)
-            objective = cp.Maximize(x @ preds[i])
 
-            constraints = [
-                x<=1, # decision variables bounded between 0 and 1
-                x>=0, 
-                cp.sum(x) == 1,
-                cp.multiply(x, preds[i]) <= self.alloc_limit
-                ]
-                # want a constraint that disincentivizes allocations for too big of values...
-                # the above doesn't really do this..
-            prob = cp.Problem(objective, constraints)
-            prob.solve()
-            sol = x.value
-            allocation[i] = sol
-        return allocation
+class LinearConstrained(Policy):
+    pass
+
+class Bipartite(Policy):
+    pass
+   
+# class ElectricTransformer(Policy):
+    
+#     def __init__(self, dim, model, gran, alloc_limit):
+#         Policy.__init__(self, dim, model)
+#         self.name = "electric-transformer"
+#         self.gran = gran
+#         self.alloc_limit = alloc_limit
+#         self.coordinate_values = np.arange(0,1,gran)
+#         self.n_vals = len(self.coordinate_values)
+    
+#     def run_given_preds(self, preds):
+#         allocation = np.zeros((len(preds), self.dim))
+#         for i in range(len(preds)):
+#             if i%1000==0:
+#                 print('i', i)
+#             x = cp.Variable(self.dim)
+#             objective = cp.Maximize(x @ preds[i])
+
+#             constraints = [
+#                 x<=1, # decision variables bounded between 0 and 1
+#                 x>=0, 
+#                 cp.sum(x) == 1,
+#                 cp.multiply(x, preds[i]) <= self.alloc_limit
+#                 ]
+#                 # want a constraint that disincentivizes allocations for too big of values...
+#                 # the above doesn't really do this..
+#             prob = cp.Problem(objective, constraints)
+#             prob.solve()
+#             sol = x.value
+#             allocation[i] = sol
+#         return allocation
             
 
 
