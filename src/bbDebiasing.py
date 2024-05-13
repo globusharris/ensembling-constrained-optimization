@@ -41,6 +41,7 @@ class bbDebias:
         self.bias_array = [] # shape curr_depth * pred dim; row i is bias vector for the conditioning event described in row i of self.debias_conditions
         self.curr_preds = self.init_model(train_x) # current predictions of debiased model
         self.predictions_by_round = [np.copy(self.curr_preds)] # length self.curr_depth, entry i is predictions of model on ith round of debiasing on training data
+        self.policy_by_round = [self.policy.run_given_preds(self.curr_preds)] # self.curr_depth * len(train_x) * len(train_y)
         self.policy_preds = [] # shape k*n*pred_dim; list of induced policies of all k models on the training data
         self.probabilities = [] # length curr_depth; entry i is empirical weight of the conditioning event of round i of debiasing 
         self.halting_cond = 0
@@ -88,6 +89,7 @@ class bbDebias:
                 self.bias_array.append(np.zeros(self.pred_dim))   
             
             self.predictions_by_round.append(np.copy(self.curr_preds))
+            self.policy_by_round.append(self.policy.run_given_preds(self.curr_preds))
             
             if self._halt():
                 print("Hit tolerance; halting debiasing.")
