@@ -54,7 +54,7 @@ class bbDebias:
         policies: list of k policies associated with each of the k models.
         """
 
-        # Add models and policies to global list, and update number of conditioning events for debiasing. 
+        #Add models and policies to global list, and update number of conditioning events for debiasing. 
         self.models.extend(models)
         self.policies.extend(policies)
         self.n_models = len(self.models) 

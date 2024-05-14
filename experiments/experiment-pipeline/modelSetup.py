@@ -1,5 +1,6 @@
 import numpy as np
 import dill
+import os
 
 from sklearn.ensemble import GradientBoostingRegressor
 from sklearn.multioutput import MultiOutputRegressor 
@@ -63,6 +64,16 @@ def meta_model_by_group(xs, ys, group, model_type, model_params):
 
 
 def main():
+
+    # create file structure if doesn't exist already
+    if not os.path.exists('init-models'):
+        os.makedirs('init-models')
+        os.makedirs('init-models/linear-label')
+        os.makedirs('init-models/linear-label/gb')
+        os.makedirs('init-models/linear-label/lin')
+        os.makedirs('init-models/poly-label')
+        os.makedirs('init-models/poly-label/gb')
+        os.makedirs('init-models/poly-label/lin')
 
     # load in data
     data_path = '../../data/synthetic'

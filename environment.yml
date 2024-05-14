@@ -14,4 +14,5 @@ dependencies:
       - cvxpyp==1.4.3
       - gurobipy==11.0.1
       - datasets==2.17.1
+      - dill==0.3.8
 prefix: /opt/anaconda3/envs/bb-portfolio

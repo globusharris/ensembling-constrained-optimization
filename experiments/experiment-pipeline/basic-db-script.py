@@ -1,3 +1,7 @@
+"""
+Basic reference code for running debiasing and storing models for arbitrary data
+"""
+
 import sys 
 import os
 import dill
@@ -13,34 +17,21 @@ Helper script to run all the debiasing on models.
 """
 
 def main():
-    label_version, model_type, specialization, policy_name = sys.argv[1:]
+    datapath, modelpath, policy_name, experiment_name = sys.argv[1:]
 
-    datapath = f"../../data/synthetic"
     xs = np.loadtxt(f"{datapath}/features.csv", delimiter=',')
-    if label_version=="linear-label":
-        ys = np.loadtxt(f"{datapath}/linear-labels.csv", delimiter=',')
-    elif label_version=="poly-label":
-        ys = np.loadtxt(f"{datapath}/poly-labels.csv", delimiter=',')
-    else:
-        print("Need to specify either linear or polynomal as label version in first command-line argument.")
-        return -1
-    
-    path = f"init-models/{label_version}/{model_type}"
-    all_model_files = os.listdir(path)
+    ys = np.loadtxt(f"{datapath}/labels.csv.csv", delimiter=",")
 
-    if specialization=='coord':
-        model_files = [model_file for model_file in all_model_files if ('coord' in model_file) ]
-    elif specialization=='group':
-        model_files = [model_file for model_file in all_model_files if ('group' in model_file) ]
-    else:
-        model_files = all_model_files
+    model_files = os.listdir(modelpath)
     
     models = []
     for filename in model_files:
-        with open(f"{path}/{filename}", 'rb') as file:
+        with open(f"{modelpath}/{filename}", 'rb') as file:
             models.append(dill.load(file))
     
     pred_dim = ys.shape[1]
+
+    db_model_path = f"./debiased-models/{experiment_name}"
 
     if policy_name=='simplex':
         # bit silly syntax, bc wrote code in way that we could theoretically combine different policies,
@@ -56,8 +47,6 @@ def main():
     else:
         print("Need to properly specify policy")
         return -1
-    
-    db_model_path = f"./debiased-models/{label_version}_{model_type}_{specialization}_{policy_name}"
 
     max_depth = 1
     tolerance = 0.01

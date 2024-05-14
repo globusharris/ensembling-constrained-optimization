@@ -76,11 +76,10 @@ class Simplex(Policy):
 
 class LinearMin(Policy):
 
-    def __init__(self, dim, model, gran, ys):
+    def __init__(self, dim, model, gran):
         Policy.__init__(self, dim, model)
         self.name = "linear-min"
         self.gran = gran
-        self.ys = ys
         self.coordinate_values = np.arange(0,1,gran)
         self.n_vals = len(self.coordinate_values)
  
