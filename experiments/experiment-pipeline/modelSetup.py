@@ -82,6 +82,7 @@ def main():
         with open(path, 'wb') as file:  
             dill.dump(model, file)
         model = meta_model_by_coord(xs, poly_ys, coord, "gradient-boost", gb_model_params)
+        print(model(xs).shape)
         path = f"{storage_path_poly}/gb/coord_{coord}.pkl"
         with open(path, 'wb') as file:  
             dill.dump(model, file)
