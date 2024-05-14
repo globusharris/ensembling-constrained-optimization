@@ -115,12 +115,54 @@ class LinearMin(Policy):
             prob.solve(solver=cp.GUROBI, verbose=False) 
             allocation[i] = x.value
         return allocation
+
+class LinearMax(Policy):
+
+    def __init__(self, dim, model, gran, ys):
+        Policy.__init__(self, dim, model)
+        self.name = "linear-max"
+        self.gran = gran
+        self.ys = ys
+        self.coordinate_values = np.arange(0,1,gran)
+        self.n_vals = len(self.coordinate_values)
+ 
+    
+    def run_given_preds(self, preds):
+        """
+        preds: array of predictions, where one row corresponds to a single vector of predictions.
+        return: allocation vector for each prediction.
+        
+        The allocation vector is computed by constraining the problem to maximize the policy subject to
+        it summing to 1 across all coordinates, each allocation term being bounded by 0 and 1, 
+        and, if w is the policy vector, wCw^T <= alpha, where C is the (empirical) covariance matrix of the labels.
+        
+        It runs this optimization problem separately for each prediction vector that is input. 
+
+        Pooling causing problems w suppressing stdout, and also for some reason slower than alternative, so tossing for now. 
+        """
+        # with Pool() as pool:
+        #     results = pool.map(covariance_constrained_optimization_problem, [(pred, self.covariance, self.var_limit) for pred in preds])
+        # return np.array(results)
+        allocation = np.zeros((len(preds), self.dim))
+
+        for i in range(len(preds)):
+            x = cp.Variable(self.dim)
+            objective = cp.Maximize(x @ preds[i])
+            constraints = [x<=1, # have to allocate between 0 and 1
+                            x>=0, 
+                            x @ np.ones(self.dim) == 1 # allocation forms a distribution which sums to 1
+                            # cp.quad_form(x,self.covariance) <= self.var_limit  # allocation bounded by covariance matrix of ys
+                            ]
+            prob = cp.Problem(objective, constraints)
+            prob.solve(solver=cp.GUROBI, verbose=False) 
+            allocation[i] = x.value
+        return allocation
         
 class VarianceConstrained(Policy):
 
     def __init__(self, dim, model, gran, var_limit, ys):
         Policy.__init__(self, dim, model)
-        self.name = "variance"
+        self.name = "minimize-variance"
         self.gran = gran
         self.var_limit = var_limit
         self.ys = ys
