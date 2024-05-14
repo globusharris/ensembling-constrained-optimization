@@ -78,7 +78,7 @@ class VarianceConstrained(Policy):
 
     def __init__(self, dim, model, gran, var_limit, ys):
         Policy.__init__(self, dim, model)
-        self.name = "minimize-variance"
+        self.name = "variance"
         self.gran = gran
         self.var_limit = var_limit
         self.ys = ys
