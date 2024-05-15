@@ -69,7 +69,10 @@ def main():
     
     db_model_path = f"./debiased-models/{label_version}_{model_type}_{specialization}_{policy_name}"
 
-    max_depth = 600
+    if not os.path.exists('debiased-models'):
+        os.makedirs('debiased-models')
+        
+    max_depth = 1
     tolerance = 0.01
 
     def init_model(xs):

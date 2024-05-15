@@ -1,4 +1,5 @@
 import numpy as np
+import os
 
 """
 Generating synthetic data and storing
@@ -118,6 +119,11 @@ def main():
     linear_ys = linear_label_gen(xs, label_dim, noise)
 
     data_path = '../../data/synthetic'
+
+    if not os.path.exists(data_path):
+        os.makedirs('../../data')
+        os.makedirs(data_path)
+
 
     np.savetxt(f"{data_path}/features.csv", xs, delimiter=",")
     np.savetxt(f"{data_path}/poly-labels.csv", poly_ys, delimiter=",")

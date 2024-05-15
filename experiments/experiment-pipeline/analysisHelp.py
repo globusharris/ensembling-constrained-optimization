@@ -2,6 +2,7 @@ import numpy as np
 from sklearn.metrics import mean_squared_error as mse
 import matplotlib.pyplot as plt
 import dill
+import os
 
 def BBMSE(bbModel, figPath=None, experimentName=None):
     mses = np.array([mse(bbModel.train_y, pred) for pred in bbModel.predictions_by_round])
@@ -120,6 +121,11 @@ def allPlots(bbPath, maxEnsemblePath, figPath, experimentName):
         bbModel = dill.load(file)
     with open(maxEnsemblePath, 'rb') as file:
         maxModel = dill.load(file)
+    
+    if not os.path.exists(figPath):
+        if not os.path.exists('./fig'):
+            os.makedirs('fig')
+        os.makedirs(figPath)
     
     BBMSE(bbModel, figPath=figPath, experimentName=experimentName)
     MaxEnsembleMSE(maxModel, figPath=figPath, experimentName=experimentName)
