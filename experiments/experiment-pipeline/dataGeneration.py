@@ -106,9 +106,9 @@ def main():
     xs = feature_gen(n, n_features, cov_min, cov_max, mean_min, mean_max, num_categories)
 
     # Label parameters
-    label_dim = 2
-    n_terms = 3
-    term_size = 4
+    label_dim = 4
+    n_terms = 5
+    term_size = 2
     coeff_min = -1
     coeff_max = 1
     max_exponent = 2

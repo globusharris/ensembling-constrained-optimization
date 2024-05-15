@@ -47,6 +47,9 @@ class EnsembledModel:
         self.probabilities = [] # shape self.curr_depth * k; entry (i,j) is the empirical weight of the conditioning event at round i of debiasing when model j is maximal and the conditions described in row i of debias conditions are met. 
         self.halting_cond = 0
 
+        self.policies_by_round = []
+        self.self_assessed_revs_by_round = []
+        self.realized_revs_by_round = []
         self.max_policy_index_by_round = []
         self.meta_policy_choice_by_round = []
         self.meta_model_pred_by_round = []
@@ -76,10 +79,14 @@ class EnsembledModel:
             # Evaluate models, determine the policy associated w each and that policy's self-assessed revenue
             policies_by_models = np.array([self.policies[i].run_given_preds(self.curr_preds[i]) for i in range(self.n_models)])     
             self_assessed_revs =  np.array([np.einsum('ij,ij->i', self.curr_preds[i], policies_by_models[i]) for i in range(self.n_models)]) # array of length k, where each entry is of shape n, and is dot product of pred and policy vector
+            realized_revs = np.array([np.einsum('ij,ij->i', self.train_y, policies_by_models[i]) for i in range(self.n_models)])
             maximal_policy = np.argmax(self_assessed_revs, axis=0) # length n; returns index of the maximal policy
             curr_policy = policies_by_models[model_index]
 
-            # Track what the meta policy would choose at this round
+            # Track what the meta policy would choose at this round and what all policies have been doing
+            self.policies_by_round.append(policies_by_models)
+            self.self_assessed_revs_by_round.append(self_assessed_revs)
+            self.realized_revs_by_round.append(realized_revs)
             self.max_policy_index_by_round.append(maximal_policy)
             self.meta_policy_choice_by_round.append(policies_by_models[maximal_policy, np.arange(policies_by_models.shape[1]),:])
             self.meta_model_pred_by_round.append(np.array(self.curr_preds)[maximal_policy, np.arange(self.n),:])
