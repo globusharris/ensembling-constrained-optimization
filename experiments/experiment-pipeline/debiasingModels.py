@@ -13,7 +13,8 @@ Helper script to run all the debiasing on models.
 """
 
 def main():
-    label_version, model_type, specialization, policy_name = sys.argv[1:]
+    label_version, model_type, specialization, policy_name, max_depth = sys.argv[1:]
+    max_depth=int(max_depth)
 
     datapath = f"../../data/synthetic"
     xs = np.loadtxt(f"{datapath}/features.csv", delimiter=',')
@@ -71,8 +72,7 @@ def main():
 
     if not os.path.exists('debiased-models'):
         os.makedirs('debiased-models')
-        
-    max_depth = 1
+    
     tolerance = 0.01
 
     def init_model(xs):
