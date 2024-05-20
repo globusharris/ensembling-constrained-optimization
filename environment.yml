@@ -10,8 +10,8 @@ dependencies:
       - matplotlib==3.8.3
       - numpy==1.26.4
       - scikit-learn==1.4.1.post1
-      - scipy==1.12.0
-      - cvxpyp==1.4.3
+      - scipy==1.11.4
+      - cvxpy==1.4.3
       - gurobipy==11.0.1
       - datasets==2.17.1
       - dill==0.3.8

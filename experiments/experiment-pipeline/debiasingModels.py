@@ -12,6 +12,8 @@ import maxEnsembleDebias
 Helper script to run all the debiasing on models.
 """
 
+rng = np.random.default_rng(seed=42) #setting random number generator w set seed to use throughout
+
 def main():
     label_version, model_type, specialization, policy_name, max_depth = sys.argv[1:]
     max_depth=int(max_depth)
@@ -28,7 +30,7 @@ def main():
     
     # subsampling the datapoints for debiasing for computation's sake
     n = 250
-    ind = np.random.choice(np.arange(len(xs)), size=n)
+    ind = rng.choice(np.arange(len(xs)), size=n)
     xs = xs[ind]
     ys = ys[ind]
     
@@ -63,12 +65,15 @@ def main():
         pols = [policies.VarianceConstrained(pred_dim, models[0], gran, var_limit, ys)]*len(models)
     elif policy_name=='linear-constraint':
         gran = 0.1
-        pols = [policies.LinearMin(pred_dim, models[0], gran)]*len(models)
+        linear_constraint = np.array([[1,1,0,0], [0,1,1,0]])
+        max_val = np.array([0.5,0.6])
+        gran = 0.1
+        pols = [policies.Linear(pred_dim, models[0], gran, linear_constraint, max_val)]*len(models)
     else:
         print("Need to properly specify policy")
         return -1
     
-    db_model_path = f"./debiased-models/{label_version}_{model_type}_{specialization}_{policy_name}"
+    db_model_path = f"./debiased-models/{label_version}_{model_type}_{specialization}_{policy_name}_{max_depth}_subsample{n}"
 
     if not os.path.exists('debiased-models'):
         os.makedirs('debiased-models')
@@ -78,13 +83,13 @@ def main():
     def init_model(xs):
         return np.tile(np.mean(ys, axis=0), (len(xs),1))
     
-    print("Running BB")
-    bbModel = bbDebiasing.bbDebias(init_model, pols[0], xs, ys, max_depth, tolerance)
-    bbModel.debias(models, pols)
+    # print("Running BB")
+    # bbModel = bbDebiasing.bbDebias(init_model, pols[0], xs, ys, max_depth, tolerance)
+    # bbModel.debias(models, pols)
 
-    model_file = f"{db_model_path}_BBModel.pkl"
-    with open(model_file, 'wb') as file:
-        dill.dump(bbModel, file)
+    # model_file = f"{db_model_path}_BBModel.pkl"
+    # with open(model_file, 'wb') as file:
+    #     dill.dump(bbModel, file)
     
     print("Running Ensembling")
     maxModel = maxEnsembleDebias.EnsembledModel(models, pols, xs, ys, max_depth, tolerance)

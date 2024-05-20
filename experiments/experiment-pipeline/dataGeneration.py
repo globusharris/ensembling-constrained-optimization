@@ -5,6 +5,9 @@ import os
 Generating synthetic data and storing
 """
 
+rng = np.random.default_rng(seed=42) #setting random number generator w set seed to use throughout
+
+
 def feature_gen(n, dim, cov_min, cov_max, mean_min, mean_max, num_categories):
     """
     Generate feature data, which has one categorical feature and the rest generated as random Gaussian
@@ -14,13 +17,13 @@ def feature_gen(n, dim, cov_min, cov_max, mean_min, mean_max, num_categories):
     # First, generating the Gaussian data features, of which there will be dim-1
 
     # Cholesky decomposition of random matrix to get a valid covariance matrix
-    M = np.random.uniform(cov_min, cov_max, size=(dim-1, dim-1))
+    M = rng.uniform(cov_min, cov_max, size=(dim-1, dim-1))
     cov = M.T @ M
-    mean = np.random.uniform(mean_min, mean_max, size=dim-1)
-    gauss_data = np.random.multivariate_normal(mean, cov, size=n)
+    mean = rng.uniform(mean_min, mean_max, size=dim-1)
+    gauss_data = rng.multivariate_normal(mean, cov, size=n)
 
     # Next, generate categorical data
-    cat_data = np.random.choice(np.arange(num_categories), size=n)
+    cat_data = rng.choice(np.arange(num_categories), size=n)
 
     # Combine
     data = np.hstack((gauss_data, cat_data[:, np.newaxis]))
@@ -45,11 +48,11 @@ def poly_label_fun(xs, n_terms, term_size, coeff_min, coeff_max, max_exponent):
         # Polynomial Generation
         feature_dim = xs.shape[1]
         # pick coefficients of each polynomial term 
-        coefficients = np.random.uniform(coeff_min, coeff_max, size = n_terms)
+        coefficients = rng.uniform(coeff_min, coeff_max, size = n_terms)
         # pick variables to include in that term
-        variables = [np.random.choice(np.arange(feature_dim), size=term_size, replace=False) for i in range(n_terms)]
+        variables = [rng.choice(np.arange(feature_dim), size=term_size, replace=False) for i in range(n_terms)]
         # pick values in exponent for each of the variables for that term
-        powers = [np.random.choice(np.arange(max_exponent+1), size=term_size) for i in range(n_terms)]
+        powers = [rng.choice(np.arange(max_exponent+1), size=term_size) for i in range(n_terms)]
         # evaluate each term of the polynomial
         terms = np.array([coefficients[i] * np.prod(xs[:,variables[i]]**powers[i], axis=1) for i in range(n_terms)])
         labels = np.sum(terms, axis=0)
@@ -84,9 +87,9 @@ def linear_label_gen(xs, label_dim, noise_level):
     n = xs.shape[0]
     n_features = xs.shape[1]
 
-    slopes = np.random.uniform(size=(n_features, label_dim))
+    slopes = rng.uniform(size=(n_features, label_dim))
     cov = np.diag([noise_level]*label_dim)
-    errs = np.random.multivariate_normal([0]*label_dim, cov, size = n)
+    errs = rng.multivariate_normal([0]*label_dim, cov, size = n)
     labels = np.matmul(xs, slopes)+errs
     return labels
 
@@ -121,7 +124,8 @@ def main():
     data_path = '../../data/synthetic'
 
     if not os.path.exists(data_path):
-        os.makedirs('../../data')
+        if not os.path.exists('../../data'):
+            os.makedirs('../../data')
         os.makedirs(data_path)
 
 

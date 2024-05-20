@@ -74,28 +74,21 @@ class Simplex(Policy):
         allocation[np.arange(len(preds)), max_coord] = np.ones(len(preds))
         return allocation
 
-class LinearMin(Policy):
+class Linear(Policy):
 
-    def __init__(self, dim, model, gran):
+    def __init__(self, dim, model, gran, linear_constraint, max_val):
         Policy.__init__(self, dim, model)
         self.name = "linear-min"
         self.gran = gran
         self.coordinate_values = np.arange(0,1,gran)
         self.n_vals = len(self.coordinate_values)
- 
+        self.linear_constraint = linear_constraint
+        self.max_val = max_val
     
     def run_given_preds(self, preds):
         """
         preds: array of predictions, where one row corresponds to a single vector of predictions.
         return: allocation vector for each prediction.
-        
-        The allocation vector is computed by constraining the problem to maximize the policy subject to
-        it summing to 1 across all coordinates, each allocation term being bounded by 0 and 1, 
-        and, if w is the policy vector, wCw^T <= alpha, where C is the (empirical) covariance matrix of the labels.
-        
-        It runs this optimization problem separately for each prediction vector that is input. 
-
-        Pooling causing problems w suppressing stdout, and also for some reason slower than alternative, so tossing for now. 
         """
         # with Pool() as pool:
         #     results = pool.map(covariance_constrained_optimization_problem, [(pred, self.covariance, self.var_limit) for pred in preds])
@@ -107,7 +100,10 @@ class LinearMin(Policy):
             objective = cp.Minimize(x @ preds[i])
             constraints = [x<=1, # have to allocate between 0 and 1
                             x>=0, 
-                            x @ np.ones(self.dim) == 1 # allocation forms a distribution which sums to 1
+                            x @ np.ones(self.dim) == 1, # allocation forms a distribution which sums to 1
+                            x @ self.linear_constraint.T <= self.max_val
+                            # x @ self.linear_constraint[0] <= self.max_val[0],
+                            # x @ self.linear_constraint[1] <= self.max_val[1]
                             # cp.quad_form(x,self.covariance) <= self.var_limit  # allocation bounded by covariance matrix of ys
                             ]
             prob = cp.Problem(objective, constraints)
@@ -115,47 +111,47 @@ class LinearMin(Policy):
             allocation[i] = x.value
         return allocation
 
-class LinearMax(Policy):
+# class LinearMax(Policy):
 
-    def __init__(self, dim, model, gran, ys):
-        Policy.__init__(self, dim, model)
-        self.name = "linear-max"
-        self.gran = gran
-        self.ys = ys
-        self.coordinate_values = np.arange(0,1,gran)
-        self.n_vals = len(self.coordinate_values)
+#     def __init__(self, dim, model, gran, ys):
+#         Policy.__init__(self, dim, model)
+#         self.name = "linear-max"
+#         self.gran = gran
+#         self.ys = ys
+#         self.coordinate_values = np.arange(0,1,gran)
+#         self.n_vals = len(self.coordinate_values)
  
     
-    def run_given_preds(self, preds):
-        """
-        preds: array of predictions, where one row corresponds to a single vector of predictions.
-        return: allocation vector for each prediction.
+#     def run_given_preds(self, preds):
+#         """
+#         preds: array of predictions, where one row corresponds to a single vector of predictions.
+#         return: allocation vector for each prediction.
         
-        The allocation vector is computed by constraining the problem to maximize the policy subject to
-        it summing to 1 across all coordinates, each allocation term being bounded by 0 and 1, 
-        and, if w is the policy vector, wCw^T <= alpha, where C is the (empirical) covariance matrix of the labels.
+#         The allocation vector is computed by constraining the problem to maximize the policy subject to
+#         it summing to 1 across all coordinates, each allocation term being bounded by 0 and 1, 
+#         and, if w is the policy vector, wCw^T <= alpha, where C is the (empirical) covariance matrix of the labels.
         
-        It runs this optimization problem separately for each prediction vector that is input. 
+#         It runs this optimization problem separately for each prediction vector that is input. 
 
-        Pooling causing problems w suppressing stdout, and also for some reason slower than alternative, so tossing for now. 
-        """
-        # with Pool() as pool:
-        #     results = pool.map(covariance_constrained_optimization_problem, [(pred, self.covariance, self.var_limit) for pred in preds])
-        # return np.array(results)
-        allocation = np.zeros((len(preds), self.dim))
+#         Pooling causing problems w suppressing stdout, and also for some reason slower than alternative, so tossing for now. 
+#         """
+#         # with Pool() as pool:
+#         #     results = pool.map(covariance_constrained_optimization_problem, [(pred, self.covariance, self.var_limit) for pred in preds])
+#         # return np.array(results)
+#         allocation = np.zeros((len(preds), self.dim))
 
-        for i in range(len(preds)):
-            x = cp.Variable(self.dim)
-            objective = cp.Maximize(x @ preds[i])
-            constraints = [x<=1, # have to allocate between 0 and 1
-                            x>=0, 
-                            x @ np.ones(self.dim) == 1 # allocation forms a distribution which sums to 1
-                            # cp.quad_form(x,self.covariance) <= self.var_limit  # allocation bounded by covariance matrix of ys
-                            ]
-            prob = cp.Problem(objective, constraints)
-            prob.solve(solver=cp.GUROBI, verbose=False) 
-            allocation[i] = x.value
-        return allocation
+#         for i in range(len(preds)):
+#             x = cp.Variable(self.dim)
+#             objective = cp.Maximize(x @ preds[i])
+#             constraints = [x<=1, # have to allocate between 0 and 1
+#                             x>=0, 
+#                             x @ np.ones(self.dim) == 1 # allocation forms a distribution which sums to 1
+#                             # cp.quad_form(x,self.covariance) <= self.var_limit  # allocation bounded by covariance matrix of ys
+#                             ]
+#             prob = cp.Problem(objective, constraints)
+#             prob.solve(solver=cp.GUROBI, verbose=False) 
+#             allocation[i] = x.value
+#         return allocation
         
 class VarianceConstrained(Policy):
 

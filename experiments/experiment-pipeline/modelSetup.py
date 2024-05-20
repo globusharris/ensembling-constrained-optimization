@@ -27,7 +27,7 @@ def meta_model_by_coord(xs, ys, coord, model_type, model_params):
             labels = np.zeros((len(xs), label_dim))
             labels[:,coord] = model.predict(xs)
             other_coords = np.arange(label_dim)[np.arange(label_dim)!=coord]
-            labels[:, other_coords] = np.tile(np.mean(ys[:,other_coords], axis=0), (len(labels),1))
+            labels[:, other_coords] = np.tile(np.mean(ys[:, other_coords], axis=0), (len(labels),1))
             return labels
     
     return h
@@ -53,12 +53,12 @@ def meta_model_by_group(xs, ys, group, model_type, model_params):
         model.fit(xs[target_indices], ys[target_indices])
 
     def h(xs):
-            target_indices = (xs[:,-1]==group)
-            labels = np.zeros((len(xs), label_dim))
-            labels[target_indices] = model.predict(xs[target_indices])
-            other_coords = np.arange(label_dim)[np.logical_not(target_indices)]
-            labels[other_coords] = np.tile(np.mean(ys[other_coords], axis=0), (np.sum(other_coords),1))
-            return labels
+        target_indices = (xs[:,-1]==group)
+        labels = np.zeros((len(xs), label_dim))
+        labels[target_indices] = model.predict(xs[target_indices])
+        other_coords = np.logical_not(target_indices)
+        labels[other_coords] = np.tile(np.mean(ys, axis=0), (np.sum(other_coords),1))
+        return labels
     
     return h
 
