@@ -29,7 +29,7 @@ def main():
         return -1
     
     # subsampling the datapoints for debiasing for computation's sake
-    n = 250
+    n = 400
     ind = rng.choice(np.arange(len(xs)), size=n)
     xs = xs[ind]
     ys = ys[ind]
@@ -83,13 +83,13 @@ def main():
     def init_model(xs):
         return np.tile(np.mean(ys, axis=0), (len(xs),1))
     
-    # print("Running BB")
-    # bbModel = bbDebiasing.bbDebias(init_model, pols[0], xs, ys, max_depth, tolerance)
-    # bbModel.debias(models, pols)
+    print("Running BB")
+    bbModel = bbDebiasing.bbDebias(init_model, pols[0], xs, ys, max_depth, tolerance)
+    bbModel.debias(models, pols)
 
-    # model_file = f"{db_model_path}_BBModel.pkl"
-    # with open(model_file, 'wb') as file:
-    #     dill.dump(bbModel, file)
+    model_file = f"{db_model_path}_BBModel.pkl"
+    with open(model_file, 'wb') as file:
+        dill.dump(bbModel, file)
     
     print("Running Ensembling")
     maxModel = maxEnsembleDebias.EnsembledModel(models, pols, xs, ys, max_depth, tolerance)
