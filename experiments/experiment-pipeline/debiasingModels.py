@@ -2,6 +2,7 @@ import sys
 import os
 import dill
 import numpy as np
+import time
 
 sys.path.append('../../src')
 import policies 
@@ -83,17 +84,27 @@ def main():
     def init_model(xs):
         return np.tile(np.mean(ys, axis=0), (len(xs),1))
     
+    start_time = time.time()
     print("Running BB")
     bbModel = bbDebiasing.bbDebias(init_model, pols[0], xs, ys, max_depth, tolerance)
     bbModel.debias(models, pols)
+    bb_time = time.time() - start_time
+
+    with open('time.txt', "a") as file:
+        file.write(f'BB time: {bb_time} \n')
 
     model_file = f"{db_model_path}_BBModel.pkl"
     with open(model_file, 'wb') as file:
         dill.dump(bbModel, file)
     
+    start_time = time.time()
     print("Running Ensembling")
     maxModel = maxEnsembleDebias.EnsembledModel(models, pols, xs, ys, max_depth, tolerance)
     maxModel.debias()
+    max_time = time.time() - start_time
+
+    with open('time.txt', "a") as file:
+        file.write(f'WB time: {max_time}')
 
     model_file = f"{db_model_path}_MaxEnsemble.pkl"
     with open(model_file, 'wb') as file:

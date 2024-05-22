@@ -55,7 +55,8 @@ def meta_model_by_group(xs, ys, group, model_type, model_params):
     def h(xs):
         target_indices = (xs[:,-1]==group)
         labels = np.zeros((len(xs), label_dim))
-        labels[target_indices] = model.predict(xs[target_indices])
+        if np.sum(target_indices)!=0:
+            labels[target_indices] = model.predict(xs[target_indices])
         other_coords = np.logical_not(target_indices)
         labels[other_coords] = np.tile(np.mean(ys, axis=0), (np.sum(other_coords),1))
         return labels

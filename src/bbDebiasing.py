@@ -89,7 +89,7 @@ class bbDebias:
                 self.bias_array.append(np.zeros(self.pred_dim))   
             
             self.predictions_by_round.append(np.copy(self.curr_preds))
-            self.policy_by_round.append(self.policy.run_given_preds(self.curr_preds))
+            #self.policy_by_round.append(self.policy.run_given_preds(self.curr_preds))
             
             if self._halt():
                 print("Hit tolerance; halting debiasing.")
