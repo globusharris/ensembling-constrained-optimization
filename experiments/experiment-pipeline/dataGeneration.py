@@ -108,6 +108,7 @@ def main():
     num_categories = 5
 
     xs = feature_gen(n, n_features, cov_min, cov_max, mean_min, mean_max, num_categories)
+    xs_test = feature_gen(400, n_features, cov_min, cov_max, mean_min, mean_max, num_categories)
 
     # Label parameters
     label_dim = 4
@@ -119,7 +120,9 @@ def main():
     noise = 0.01
 
     poly_ys = poly_label_gen(xs, label_dim, n_terms, term_size, coeff_min, coeff_max, max_exponent, noise)
+    poly_ys_test = poly_label_gen(xs_test, label_dim, n_terms, term_size, coeff_min, coeff_max, max_exponent, noise)
     linear_ys = linear_label_gen(xs, label_dim, noise)
+    linear_ys_test = linear_label_gen(xs_test, label_dim, noise)
 
     data_path = '../../data/synthetic'
 
@@ -130,8 +133,11 @@ def main():
 
 
     np.savetxt(f"{data_path}/features.csv", xs, delimiter=",")
+    np.savetxt(f"{data_path}/features_test.csv", xs_test, delimiter=",")
     np.savetxt(f"{data_path}/poly-labels.csv", poly_ys, delimiter=",")
+    np.savetxt(f"{data_path}/poly-labels_test.csv", poly_ys_test, delimiter=",")
     np.savetxt(f"{data_path}/linear-labels.csv", linear_ys, delimiter=",")
+    np.savetxt(f"{data_path}/linear-labels_test.csv", linear_ys_test, delimiter=",")
 
 if __name__ == "__main__":
     main()

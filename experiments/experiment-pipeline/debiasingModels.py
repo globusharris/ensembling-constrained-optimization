@@ -16,8 +16,9 @@ Helper script to run all the debiasing on models.
 rng = np.random.default_rng(seed=42) #setting random number generator w set seed to use throughout
 
 def main():
-    label_version, model_type, specialization, policy_name, max_depth = sys.argv[1:]
+    label_version, model_type, specialization, policy_name, max_depth, subsample_size = sys.argv[1:]
     max_depth=int(max_depth)
+    subsample_size=int(subsample_size)
 
     datapath = f"../../data/synthetic"
     xs = np.loadtxt(f"{datapath}/features.csv", delimiter=',')
@@ -30,8 +31,7 @@ def main():
         return -1
     
     # subsampling the datapoints for debiasing for computation's sake
-    n = 400
-    ind = rng.choice(np.arange(len(xs)), size=n)
+    ind = rng.choice(np.arange(len(xs)), size=subsample_size)
     xs = xs[ind]
     ys = ys[ind]
     
@@ -74,7 +74,7 @@ def main():
         print("Need to properly specify policy")
         return -1
     
-    db_model_path = f"./debiased-models/{label_version}_{model_type}_{specialization}_{policy_name}_{max_depth}_subsample{n}"
+    db_model_path = f"./debiased-models/{label_version}_{model_type}_{specialization}_{policy_name}_{max_depth}_subsample{subsample_size}"
 
     if not os.path.exists('debiased-models'):
         os.makedirs('debiased-models')

@@ -1,6 +1,7 @@
 import dill
 import numpy as np
 import sys
+import os
 
 import dataGeneration
 import modelSetup
@@ -10,71 +11,76 @@ import policies
 import bbDebiasing
 import maxEnsembleDebias
 
-rng = np.random.default_rng(seed=42)
+def generateOutOfSample(bbModel, wbModel, experimentName, test_x, test_y):
+    # Generate predictions, predicted payoff, and realized payoff
 
-# Feature parameters
-n = 11000
-n_features = 20
-cov_min = -3
-cov_max = 3
-mean_min = -5
-mean_max = 5
-num_categories = 5
+    bbPreds, bbTrans = bbModel.predict(test_x)
+    wbPreds, wbTrans = wbModel.predict(test_x)
 
-xs = dataGeneration.feature_gen(n, n_features, cov_min, cov_max, mean_min, mean_max, num_categories)
+    wbPredPayoff = wbModel.getPredPayoff(wbTrans)
+    wbRealPayoff = wbModel.getRealPayoff(wbTrans, test_y)
 
-# Label parameters
-label_dim = 4
-n_terms = 5
-term_size = 2
-coeff_min = -1
-coeff_max = 1
-max_exponent = 2
-noise = 0.01
+    bbPredPayoff = bbModel.getPredPayoff(bbTrans)
+    bbRealPayoff = bbModel.getRealPayoff(bbTrans, test_y)
 
-ys = dataGeneration.linear_label_gen(xs, label_dim, noise)
 
-train_xs = xs[0:10000]
-train_ys = ys[0:10000]
-holdout_xs = xs[10000:10010]
-holdout_ys = ys[10000:10010]
+    # Store
 
-pathA = ['linear-label_gb_coord_variance_5000_subsample400_BBModel.pkl',
-'linear-label_gb_coord_variance_5000_subsample400_MaxEnsemble.pkl']
-pathB = ['linear-label_gb_group_variance_5000_subsample400_BBModel.pkl',
-'linear-label_gb_group_variance_5000_subsample400_MaxEnsemble.pkl']
-pathC = ['linear-label_gb_coord_linear-constraint_5000_subsample400_BBModel.pkl',
-'linear-label_gb_coord_linear-constraint_5000_subsample400_MaxEnsemble.pkl']
-pathD = ['linear-label_gb_group_linear-constraint_8000_subsample400_BBModel.pkl',
-'linear-label_gb_group_linear-constraint_8000_subsample400_MaxEnsemble.pkl']
-
-pathsets = [pathA, pathB, pathC, pathD]
-experimentNames = ["A","B","C","D"]
-
-for i in range(len(pathsets)):
-
-    bbPath = f'debiased-models/{pathsets[i][0]}'
-    wbPath = f'debiased-models/{pathsets[i][1]}'
-    with open(bbPath, 'rb') as file:
-        bbModel = dill.load(file)
-    with open(wbPath, 'rb') as file:
-        wbModel = dill.load(file)
+    folder = 'out-of-sample'
+    if not os.path.exists(folder):
+        os.makedirs(folder)
     
-    # regenerating models to deal with a silly bug
-    if i==1 or i==3:
-        groups = np.unique(xs[:,-1])
-        models = []
-        gb_model_params = {'learning_rate': 0.1, 'max_depth':6, 'random_state':42}
-        for group in groups:
-            model = model.meta_model_by_group(xs, ys, group, 'gradient-boost', gb_model_params)
-            models.append(model)
-        bbModel.models = models
-        wbModel.init_models = models
+    if not os.path.exists(f"{folder}/{experimentName}"):
+        os.makedirs(f"{folder}/{experimentName}")
 
-    bbPreds = bbModel.predict(holdout_xs)[0]
-    np.save(f'out-of-sample/experiment-{experimentNames[i]}-BBpreds.npy', bbPreds)
+    np.save(f"{folder}/{experimentName}/bbPreds.npy", bbPreds)
+    np.save(f"{folder}/{experimentName}/wbPreds.npy", wbPreds)
+    np.save(f"{folder}/{experimentName}/wbPredPayoff.npy", wbPredPayoff)
+    np.save(f"{folder}/{experimentName}/wbRealPayoff.npy", wbRealPayoff)
+    np.save(f"{folder}/{experimentName}/bbPredPayoff.npy", bbPredPayoff)
+    np.save(f"{folder}/{experimentName}/bbRealPayoff.npy", bbRealPayoff)
 
-    wbPreds, transcript = wbModel.predict(holdout_xs)
-    np.save(f'out-of-sample/experiment-{experimentNames[i]}-WBpreds.npy', wbPreds)
-    np.save(f'out-of-sample/experiment-{experimentNames[i]}-WBtrans.npy', np.array(transcript.policies_by_models_by_round))
+    with open(f"{folder}/{experimentName}/bbTranscript.pkl", 'wb') as file:
+        dill.dump(bbTrans, file)
+    with open(f"{folder}/{experimentName}/wbTranscript.pkl", 'wb') as file:
+        dill.dump(wbTrans, file)
 
+
+def main():
+
+    pathA = ['linear-label_gb_coord_variance_5000_subsample400_BBModel.pkl',
+        'linear-label_gb_coord_variance_5000_subsample400_MaxEnsemble.pkl']
+    pathB = ['linear-label_gb_group_variance_5000_subsample400_BBModel.pkl',
+        'linear-label_gb_group_variance_5000_subsample400_MaxEnsemble.pkl']
+    pathC = ['linear-label_gb_coord_linear-constraint_5000_subsample400_BBModel.pkl',
+        'linear-label_gb_coord_linear-constraint_5000_subsample400_MaxEnsemble.pkl']
+    pathD = ['linear-label_gb_group_linear-constraint_8000_subsample400_BBModel.pkl',
+        'linear-label_gb_group_linear-constraint_8000_subsample400_MaxEnsemble.pkl']
+
+    # pathA = ['linear-label_gb_coord_variance_10_subsample5_BBModel.pkl',
+    # 'linear-label_gb_coord_variance_10_subsample5_MaxEnsemble.pkl']
+    # pathB = ['linear-label_gb_group_variance_10_subsample5_BBModel.pkl',
+    # 'linear-label_gb_group_variance_10_subsample5_MaxEnsemble.pkl']
+    # pathC = ['linear-label_gb_coord_linear-constraint_10_subsample5_BBModel.pkl',
+    # 'linear-label_gb_coord_linear-constraint_10_subsample5_MaxEnsemble.pkl']
+    # pathD = ['linear-label_gb_group_linear-constraint_10_subsample5_BBModel.pkl',
+    # 'linear-label_gb_group_linear-constraint_10_subsample5_MaxEnsemble.pkl']
+
+    pathsets = [pathA, pathB, pathC, pathD]
+    experimentNames = ["A","B","C","D"]
+
+    data_path = '../../data/synthetic'
+    test_x = np.loadtxt(f"{data_path}/features_test.csv", delimiter=',')
+    test_y = np.loadtxt(f"{data_path}/linear-labels_test.csv", delimiter=',')
+    for i in range(len(pathsets)):
+        bbPath = f'debiased-models/{pathsets[i][0]}'
+        wbPath = f'debiased-models/{pathsets[i][1]}'
+        with open(bbPath, 'rb') as file:
+            bbModel = dill.load(file)
+        with open(wbPath, 'rb') as file:
+            wbModel = dill.load(file)
+        
+        generateOutOfSample(bbModel, wbModel, experimentNames[i], test_x, test_y)
+
+if __name__ == '__main__':
+    main()

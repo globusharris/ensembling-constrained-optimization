@@ -185,4 +185,14 @@ class EnsembledModel:
             
             transcript.preds.append(np.copy(curr_preds))
 
-        return curr_preds, transcript
+        return np.array(curr_preds), transcript
+
+    def getPredPayoff(self, transcript):
+        """
+        Given transcript of predictions, return payoff of final ensemble
+        """
+        return np.sum(np.multiply(transcript.meta_model_pred_by_round[-1], transcript.meta_policy_choice_by_round[-1]), axis=1)
+    
+    def getRealPayoff(self, transcript, ys):
+        return np.sum(np.multiply(ys, transcript.meta_policy_choice_by_round[-1]), axis=1)
+        

@@ -89,7 +89,7 @@ class bbDebias:
                 self.bias_array.append(np.zeros(self.pred_dim))   
             
             self.predictions_by_round.append(np.copy(self.curr_preds))
-            #self.policy_by_round.append(self.policy.run_given_preds(self.curr_preds))
+            self.policy_by_round.append(self.policy.run_given_preds(self.curr_preds))
             
             if self._halt():
                 print("Hit tolerance; halting debiasing.")
@@ -126,7 +126,13 @@ class bbDebias:
         model_preds = [model(xs) for model in self.models] #predictions of the models we're debiasing with respect to
         policy_preds = [self.policies[i].run_given_preds(model_preds[i]) for i in range(self.n_models)]
         
-        transcript = []
+        class Transcript:
+            def __init__(self):
+                self.preds = []
+                self.final_policy = []
+        
+        transcript = Transcript()
+
         for i in range(self.curr_depth):
             model_index, coord, val = self.debias_conditions[i]
 
@@ -138,6 +144,20 @@ class bbDebias:
             
             flag = (curr_policy[:,coord] >= val) & (curr_policy[:,coord] < val + self.gran)
             curr_preds[flag] -= self.bias_array[i]
-            transcript.append(np.copy(curr_preds))
+            transcript.preds.append(np.copy(curr_preds))
 
-        return curr_preds, transcript
+        transcript.final_policy = self.policy.run_given_preds(curr_preds)
+
+        return np.array(curr_preds), transcript
+    
+    def getPredPayoff(self, transcript):
+        """
+        Given transcript of predictions, return predicted payoff of final ensemble
+        """
+        return np.sum(np.multiply(transcript.preds[-1], transcript.final_policy), axis=1)
+    
+    def getRealPayoff(self, transcript, ys):
+        """
+        Given transcript of predictions, return true payoff of final ensemble
+        """
+        return np.sum(np.multiply(ys, transcript.final_policy[-1]), axis=1)
