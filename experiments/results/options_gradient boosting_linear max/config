@@ -1,4 +1,0 @@
-options
-gradient boosting
-linear max
-Target is IV for each of the ~40 options. Eight initial models trained with access to one feature and predict the mean for the rest.
