@@ -1,30 +1,6 @@
 import numpy as np
-import cvxpy as cp
 import gurobipy as gp
-from gurobipy import quicksum
 from sklearn.covariance import empirical_covariance
-import warnings
-from multiprocessing import Pool
-
-from gurobipy import GRB
-
-# supress future warnings from cvxpy
-warnings.simplefilter(action='ignore', category=FutureWarning)
-
-# Below code for the multithreaded version of the code, which doesn't seem to like functions being inside of objects. 
-# def covariance_constrained_optimization_problem(args):
-#     pred, covariance, var_limit = args
-#     dim = len(pred)
-#     x = cp.Variable(dim)
-#     objective = cp.Maximize(x @ pred)
-#     constraints = [x<=1, # have to allocate between 0 and 1
-#                     x>=0, 
-#                     x @ np.ones(dim) == 1, # allocation forms a distribution which sums to 1
-#                     cp.quad_form(x, covariance) <= var_limit  # allocation bounded by covariance matrix of ys
-#                     ]
-#     prob = cp.Problem(objective, constraints)
-#     prob.solve(solver=cp.GUROBI, verbose=False) 
-#     return x.value
 
 class Policy:
 
@@ -47,24 +23,19 @@ class Policy:
         self.dim = dim
         self.model = model
 
-    def run(preds):
-        return -1
-
 class Simplex(Policy):
+    """
+    Simple policy which always picks the largest coordinate of the prediction vector and puts weight 1 on that
+    and 0 elsewhere, which is the solution to the unconstrained optimization of max policy \dot predictions on the
+    probability simplex. It runs quickly and without any optimization library, so useful for troubleshooting. 
+    """
 
     def __init__(self, dim, model):
         Policy.__init__(self, dim, model)
         self.name = "simplex"
         self.coordinate_values = [1] 
-        self.gran = 0.1 # this is meaningless for this policy since don't need to worry about binning here, but need in order to match types of other policies
+        self.gran = 0.1 # this is meaningless for this policy
         self.n_vals = len(self.coordinate_values)
-    
-    def run(self, xs):
-        preds = self.model(xs)
-        allocation = np.zeros((len(preds), self.dim))
-        max_coord = np.argmax(preds, axis=1)
-        allocation[np.arange(len(preds)), max_coord] = np.ones(len(preds))
-        return allocation
 
     def run_given_preds(self, preds):
         # expects numpy matrix of predictions, where 1 row corresponds to a single vector of predictions
@@ -79,7 +50,22 @@ class Simplex(Policy):
         return allocation
 
 class Linear(Policy):
-
+    """
+    Extremely simple linear optimization. 
+    Input linear constraints are a m x pred_dim matrix of constraint conditions and max_val
+    is an m-dimensional vector. So e.g. if 
+        linear_constraint = [[0,1,1], [1,1,0]]
+    and 
+        max_val = [0.1,0.2]
+    Then this corresponds the following optimization problem:
+    max w \dot v 
+    st
+        w_2 + w_3 < 0.1,
+    and
+        w_1 + w_2 < 0.2,
+    and
+        w_i \in [0,1].
+    """
     def __init__(self, dim, model, gran, linear_constraint, max_val):
         Policy.__init__(self, dim, model)
         self.name = "linear-min"
@@ -94,13 +80,13 @@ class Linear(Policy):
         preds: array of predictions, where one row corresponds to a single vector of predictions.
         return: allocation vector for each prediction.
         """
-        # with Pool() as pool:
-        #     results = pool.map(covariance_constrained_optimization_problem, [(pred, self.covariance, self.var_limit) for pred in preds])
-        # return np.array(results)
         allocation = np.zeros((len(preds), self.dim))
+        # the next three lines suppress gurobi's printout of results.
+        # (because this is running in a loop and will be called externally many times)
         env = gp.Env(empty=True)
         env.setParam("OutputFlag", 0)
         env.start()
+        # Running the allocation for each row of predictions
         for i in range(len(preds)):
             m = gp.Model(env=env)
             x = m.addMVar(self.dim, lb=0.0, ub=1.0)
@@ -108,63 +94,18 @@ class Linear(Policy):
             m.addMConstr(self.linear_constraint, x, '<', self.max_val)
             m.optimize()
             allocation[i]=x.X
-            m.dispose()
-            # x = cp.Variable(self.dim)
-            # objective = cp.Maximize(x @ preds[i])
-            # constraints = [x<=1, # have to allocate between 0 and 1
-            #                 x>=0, 
-            #                 x @ np.ones(self.dim) == 1, # allocation forms a distribution which sums to 1
-            #                 x @ self.linear_constraint.T <= self.max_val
-            #                 ]
-            # prob = cp.Problem(objective, constraints)
-            # prob.solve(solver=cp.GUROBI, verbose=False) 
-            # allocation[i] = x.value
+            # next line frees all resources associated w model object. Gurobi has some issues w memory leaks,
+            # which was leading to very high resource use when optimization was run repeatedly. 
+            # originally implemented w cvxpy, which had this issue to a much greater extent. 
+            m.dispose() 
         return allocation
 
-# class LinearMax(Policy):
-
-#     def __init__(self, dim, model, gran, ys):
-#         Policy.__init__(self, dim, model)
-#         self.name = "linear-max"
-#         self.gran = gran
-#         self.ys = ys
-#         self.coordinate_values = np.arange(0,1,gran)
-#         self.n_vals = len(self.coordinate_values)
- 
-    
-#     def run_given_preds(self, preds):
-#         """
-#         preds: array of predictions, where one row corresponds to a single vector of predictions.
-#         return: allocation vector for each prediction.
-        
-#         The allocation vector is computed by constraining the problem to maximize the policy subject to
-#         it summing to 1 across all coordinates, each allocation term being bounded by 0 and 1, 
-#         and, if w is the policy vector, wCw^T <= alpha, where C is the (empirical) covariance matrix of the labels.
-        
-#         It runs this optimization problem separately for each prediction vector that is input. 
-
-#         Pooling causing problems w suppressing stdout, and also for some reason slower than alternative, so tossing for now. 
-#         """
-#         # with Pool() as pool:
-#         #     results = pool.map(covariance_constrained_optimization_problem, [(pred, self.covariance, self.var_limit) for pred in preds])
-#         # return np.array(results)
-#         allocation = np.zeros((len(preds), self.dim))
-
-#         for i in range(len(preds)):
-#             x = cp.Variable(self.dim)
-#             objective = cp.Maximize(x @ preds[i])
-#             constraints = [x<=1, # have to allocate between 0 and 1
-#                             x>=0, 
-#                             x @ np.ones(self.dim) == 1 # allocation forms a distribution which sums to 1
-#                             # cp.quad_form(x,self.covariance) <= self.var_limit  # allocation bounded by covariance matrix of ys
-#                             ]
-#             prob = cp.Problem(objective, constraints)
-#             prob.solve(solver=cp.GUROBI, verbose=False) 
-#             allocation[i] = x.value
-#         return allocation
-        
 class VarianceConstrained(Policy):
 
+    """
+    Outputs policies that are constrained such that the weight vector sums to 1 and is bounded 
+    by the empirical covariance matrix of the labels. 
+    """
     def __init__(self, dim, model, gran, var_limit, ys):
         Policy.__init__(self, dim, model)
         self.name = "minimize-variance"
@@ -186,10 +127,10 @@ class VarianceConstrained(Policy):
         and, if w is the policy vector, wCw^T <= alpha, where C is the (empirical) covariance matrix of the labels.
         
         It runs this optimization problem separately for each prediction vector that is input. 
-
-        Pooling causing problems w suppressing stdout, and also for some reason slower than alternative, so tossing for now. 
         """
         allocation = np.zeros((len(preds), self.dim))
+        # the next three lines suppress gurobi's printout of results.
+        # (because this is running in a loop and will be called externally many times)
         env = gp.Env(empty=True)
         env.setParam("OutputFlag", 0)
         env.start()
@@ -201,46 +142,9 @@ class VarianceConstrained(Policy):
             m.addConstr(x @ self.covariance @ x <= self.var_limit)
             m.optimize()
             allocation[i]=x.X
+            # next line frees all resources associated w model object. Gurobi has some issues w memory leaks,
+            # which was leading to very high resource use when optimization was run repeatedly. 
+            # originally implemented w cvxpy, which had this issue to a much greater extent. 
             m.dispose()
         return allocation
-
-class LinearConstrained(Policy):
-    pass
-
-class Bipartite(Policy):
-    pass
-   
-# class ElectricTransformer(Policy):
-    
-#     def __init__(self, dim, model, gran, alloc_limit):
-#         Policy.__init__(self, dim, model)
-#         self.name = "electric-transformer"
-#         self.gran = gran
-#         self.alloc_limit = alloc_limit
-#         self.coordinate_values = np.arange(0,1,gran)
-#         self.n_vals = len(self.coordinate_values)
-    
-#     def run_given_preds(self, preds):
-#         allocation = np.zeros((len(preds), self.dim))
-#         for i in range(len(preds)):
-#             if i%1000==0:
-#                 print('i', i)
-#             x = cp.Variable(self.dim)
-#             objective = cp.Maximize(x @ preds[i])
-
-#             constraints = [
-#                 x<=1, # decision variables bounded between 0 and 1
-#                 x>=0, 
-#                 cp.sum(x) == 1,
-#                 cp.multiply(x, preds[i]) <= self.alloc_limit
-#                 ]
-#                 # want a constraint that disincentivizes allocations for too big of values...
-#                 # the above doesn't really do this..
-#             prob = cp.Problem(objective, constraints)
-#             prob.solve()
-#             sol = x.value
-#             allocation[i] = sol
-#         return allocation
-            
-
 

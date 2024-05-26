@@ -3,7 +3,7 @@ import numpy as np
 class EnsembledModel:
 
     """
-    "Max ensemble" version of debiasing. 
+    "white box" version of ensembling algorithm.
     
     Given a series of k initial models and their associated policies, it iteratively debiases all of them,
     conditioning on which policy induced by the models is maximal and a coord x val pair. 

@@ -2,7 +2,7 @@ import numpy as np
 
 class bbDebias:
     """
-    "Bias Bounty" style method of iteratively debiasing a predictor with respect to a series of policies
+    "black box" method of iteratively debiasing a predictor with respect to a series of policies
     """
     
     def __init__(self, init_model, policy, train_x, train_y, max_depth, tolerance):
@@ -89,7 +89,7 @@ class bbDebias:
                 self.bias_array.append(np.zeros(self.pred_dim))   
             
             self.predictions_by_round.append(np.copy(self.curr_preds))
-            self.policy_by_round.append(self.policy.run_given_preds(self.curr_preds))
+            self.policy_by_round.append(self.policy.run_given_preds(self.curr_preds)) # can comment out to remove policy tracking
             
             if self._halt():
                 print("Hit tolerance; halting debiasing.")
