@@ -1,5 +1,6 @@
 *.png
 *.pyc
+*.pkl
 data/
 experiments/experiment-pipeline/init-models/
 .DS_Store

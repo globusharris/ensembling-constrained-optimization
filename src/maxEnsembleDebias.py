@@ -156,6 +156,7 @@ class EnsembledModel:
         class Transcript:
             def __init__(self):
                 self.preds = []
+                self.policies_by_models_by_round = []
                 self.max_policy_index_by_round = []
                 self.meta_policy_choice_by_round = []
                 self.meta_model_pred_by_round = []
@@ -171,6 +172,7 @@ class EnsembledModel:
             self_assessed_revs =  np.array([np.einsum('ij,ij->i', curr_preds[i], policies_by_models[i]) for i in range(self.n_models)])
             maximal_policy = np.argmax(self_assessed_revs, axis=0)
 
+            transcript.policies_by_models_by_round.append(policies_by_models)
             transcript.max_policy_index_by_round.append(maximal_policy)
             transcript.meta_policy_choice_by_round.append(policies_by_models[maximal_policy, np.arange(policies_by_models.shape[1]),:])
             transcript.meta_model_pred_by_round.append(np.array(curr_preds)[maximal_policy, np.arange(n)])
@@ -183,4 +185,14 @@ class EnsembledModel:
             
             transcript.preds.append(np.copy(curr_preds))
 
-        return curr_preds, transcript
+        return np.array(curr_preds), transcript
+
+    def getPredPayoff(self, transcript):
+        """
+        Given transcript of predictions, return payoff of final ensemble
+        """
+        return np.sum(np.multiply(transcript.meta_model_pred_by_round[-1], transcript.meta_policy_choice_by_round[-1]), axis=1)
+    
+    def getRealPayoff(self, transcript, ys):
+        return np.sum(np.multiply(ys, transcript.meta_policy_choice_by_round[-1]), axis=1)
+        

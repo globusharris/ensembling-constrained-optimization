@@ -40,7 +40,9 @@ def experimentSubtitle(params):
     elif spec=='all':
         specstr = 'all specializations (group/coord)'
     if policy=='variance':
-        policystr = 'Variance-constrained'
+        policystr = 'Variance constrained maximization'
+    if policy=='linear-constraint':
+        policystr = 'Linearly constrained minimization'
     return f"Label generation: {labelstr}, Initial Models: {modelstr} {specstr},\n Optimization: {policystr}, n: {n}"
 
 def BBMSE(bbModel, params, figPath=None, experimentName=None):
@@ -73,7 +75,7 @@ def MaxEnsembleMSE(maxModel, params, figPath=None, experimentName=None):
     
     plt.clf()
     for i in range(maxModel.n_models):
-        plt.plot(np.arange(len(maxModel.predictions_by_round)), mses_by_model[i], label=f"Model {i}")
+        plt.plot(np.arange(len(maxModel.predictions_by_round)), mses_by_model[i], label=r"$h_{i}$")
     plt.legend()
     plt.suptitle("White-Box Algorithm: MSE of Models over Rounds")
     plt.title(experimentSubtitle(params), fontsize=7)
@@ -91,8 +93,8 @@ def BBpredRev(bbModel, params, figPath=None, experimentName=None):
     true_rev = np.mean(np.sum(np.multiply(np.tile(bbModel.train_y, (len(bbModel.policy_by_round),1,1)), np.array(bbModel.policy_by_round)), axis=2), axis=1)
 
     plt.clf()
-    plt.plot(range(len(bbModel.predictions_by_round)), pred_rev, '--', label="Predicted Payoff", color=colors[0])
-    plt.plot(range(len(bbModel.predictions_by_round)), true_rev, label="Realized Payoff", color=colors[0])
+    plt.plot(range(len(bbModel.predictions_by_round)), pred_rev, '--', label=r"Predicted Payoff", color=colors[0])
+    plt.plot(range(len(bbModel.predictions_by_round)), true_rev, label=r"Realized Payoff", color=colors[0])
     plt.hlines(np.mean(np.einsum('ij, ij->i', bbModel.train_y, bbModel.policy.run_given_preds(bbModel.train_y))), 0, bbModel.curr_depth, label="Optimal Payoff (Labels Known)", color=colors[-1])
     plt.legend()
     plt.suptitle("Black-Box Algorithm: Predicted and Realized Payoff over Rounds")
@@ -115,7 +117,7 @@ def MaxEnsembleRev(maxModel, params, figPath=None, experimentName=None):
     # for i in range(maxModel.n_models):
     #     plt.plot(np.arange(n), pred_rev[:,i], '--', label=f"Predicted Revenue of Policy {i}")
     for i in range(maxModel.n_models):
-        plt.plot(np.arange(n), real_rev[:,i], label=f"Realized Payoff: Policy {i}", color=colors[i])
+        plt.plot(np.arange(n), real_rev[:,i], label=f"Realized Payoff: Policy {i}$", color=colors[i])
 
     # generate the average revenue of the initial policies
 
@@ -143,12 +145,6 @@ def MaxEnsembleMetaRev(maxModel, params, figPath=None, experimentName=None):
     
     plt.clf()
 
-    # for i in range(maxModel.n_models):
-    #     if i == 0:
-    #         plt.hlines(real_rev[0,i], 0, maxModel.curr_depth-1, label=f"Realized Payoffs of Initial Policies", color=colors[0])
-    #     else:
-    #         plt.hlines(real_rev[0,i], 0, maxModel.curr_depth-1, color=colors[0])
-
     max_init_model = max([real_rev[0,i] for i in range(maxModel.n_models)])
     plt.hlines(max_init_model, 0, maxModel.curr_depth-1, label=f"Realized Payoff of Best Initial Policy", color=colors[0])
 
@@ -165,9 +161,10 @@ def MaxEnsembleMetaRev(maxModel, params, figPath=None, experimentName=None):
     else:
         plt.show()
 
-def BBvsMaxEnsemble(bbModel, maxModel, params, figPath=None, experimentName=None):
+def BBvsMaxEnsemble(bbModel, maxModel, params=None, figPath=None, experimentName=None):
     BBpred_rev = np.mean(np.sum(np.multiply(bbModel.predictions_by_round, np.array(bbModel.policy_by_round)), axis=2), axis=1)
     BBreal_rev = np.mean(np.sum(np.multiply(np.tile(bbModel.train_y, (len(bbModel.policy_by_round),1,1)), np.array(bbModel.policy_by_round)), axis=2), axis=1)
+    maxEnsemblereal_rev = np.mean(np.array(maxModel.realized_revs_by_round), axis=2)
     meta_real_rev = []
     meta_pred_rev = []
     for i in range(maxModel.curr_depth):
@@ -175,14 +172,19 @@ def BBvsMaxEnsemble(bbModel, maxModel, params, figPath=None, experimentName=None
         meta_pred_rev.append(np.mean(maxModel.self_assessed_revs_by_round[i][maxModel.max_policy_index_by_round[i], np.arange(maxModel.n)]))
     
     plt.clf()
-    plt.plot(np.arange(maxModel.curr_depth), meta_pred_rev, '--', label=f"Predicted Payoff of White-Box Alg", color=colors[0])
-    plt.plot(np.arange(len(BBpred_rev[:-1])), BBpred_rev[:-1], '--', label="Predicted Payoff of Black-Box Alg", color=colors[5])
-    plt.plot(np.arange(maxModel.curr_depth), meta_real_rev, label=f"Realized Payoff of White-Box Alg", color=colors[0])
-    plt.plot(np.arange(len(BBreal_rev[:-1])), BBreal_rev[:-1], label="Realized Payoff of Black-Box Policy", color=colors[5])
-    plt.hlines(np.mean(np.einsum('ij, ij->i', maxModel.train_y, maxModel.policies[0].run_given_preds(maxModel.train_y))), 0, maxModel.curr_depth-1, label="Optimal Payoff (Labels Known)", color=colors[-1])
+    max_init_model = max([maxEnsemblereal_rev[0,i] for i in range(maxModel.n_models)])
+    plt.hlines(max_init_model, 0, maxModel.curr_depth-1, label=f"Realized Payoff of Best Initial Policy", color=colors[0])
+    plt.hlines(np.mean(np.einsum('ij, ij->i', maxModel.train_y, maxModel.policies[0].run_given_preds(maxModel.train_y))), 0, maxModel.curr_depth-1, label="Optimal Payoff (Labels Known)", color=colors[3])
+    plt.plot(np.arange(maxModel.curr_depth), meta_real_rev, label=f"Realized Payoff of White-Box Alg", color=colors[6])
+    plt.plot(np.arange(maxModel.curr_depth), meta_pred_rev, '--', label=f"Predicted Payoff of White-Box Alg", color=colors[6])
+    plt.plot(np.arange(len(BBreal_rev[:-1])), BBreal_rev[:-1], label="Realized Payoff of Black-Box Policy", color=colors[8])
+    plt.plot(np.arange(len(BBpred_rev[:-1])), BBpred_rev[:-1], '--', label="Predicted Payoff of Black-Box Alg", color=colors[8])
     plt.legend(prop={'size': 6})
     plt.suptitle("Comparison of Payoffs of White-Box and Black Box Algorithms", fontsize=12)
-    plt.title(experimentSubtitle(params), fontsize=7)
+    if params:
+        plt.title(experimentSubtitle(params), fontsize=7)
+    else:
+        plt.title(f"Experiment {experimentName}", fontsize=10)
     plt.ylabel('Payoff')
     plt.xlabel('Round of Debiasing')
     if figPath:
@@ -209,15 +211,24 @@ def allPlots(bbPath, maxEnsemblePath, figPath, experimentName, params):
     BBvsMaxEnsemble(bbModel, maxModel, params, figPath=figPath, experimentName=experimentName)
 
 def main():
-    label_types = ['poly-label', 'linear-label']
-    model_types = ['lin', 'gb']
+    #label_types = ['poly-label', 'linear-label']
+    label_types = ['linear-label']
+    #model_types = ['lin', 'gb']
+    model_types = ['gb']
     spec_types = ['group', 'coord', 'all']
-    policy_types = ['variance']
+    #policy_types = ['variance', 'linear-constraint']
+    policy_types = ['linear-constraint']
 
     for (label, model, spec, policy) in itertools.product(label_types, model_types, spec_types, policy_types):
-        if (spec=='group') and (label=='linear-label') and (model=='gb'):
+        if (spec=='group') and (label=='linear-label') and (model=='gb') and (policy=='variance'):
             nrounds=5000
             n=400
+        elif policy=='linear-constraint':
+            if spec=='all':
+                continue
+            else:
+                nrounds=5000
+                n=400
         else:
             nrounds=1000
             n=250

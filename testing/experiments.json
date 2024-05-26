@@ -1,0 +1,24 @@
+{
+    "experiments": [
+      {
+        "bbModelPath": "linear-label_gb_coord_variance_5000_subsample400_BBModel.pkl",
+        "wbModelPath": "linear-label_gb_coord_variance_5000_subsample400_MaxEnsemble.pkl",
+        "name": "A"
+      },
+      {
+        "bbModelPath": "linear-label_gb_group_variance_5000_subsample400_BBModel.pkl",
+        "wbModelPath": "linear-label_gb_group_variance_5000_subsample400_MaxEnsemble.pkl",
+        "name": "A"
+      },
+      {
+        "bbModelPath": "linear-label_gb_coord_linear-constraint_5000_subsample400_BBModel.pkl",
+        "wbModelPath": "linear-label_gb_coord_linear-constraint_5000_subsample400_MaxEnsemble.pkl",
+        "name": "A"
+      },
+      {
+        "bbModelPath": "linear-label_gb_coord_variance_5000_subsample400_BBModel.pkl",
+        "wbModelPath": "linear-label_gb_coord_variance_5000_subsample400_MaxEnsemble.pkl",
+        "name": "A"
+      }
+    ]
+  }

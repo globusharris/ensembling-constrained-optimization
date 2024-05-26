@@ -1,8 +1,12 @@
 import numpy as np
 import cvxpy as cp
+import gurobipy as gp
+from gurobipy import quicksum
 from sklearn.covariance import empirical_covariance
 import warnings
 from multiprocessing import Pool
+
+from gurobipy import GRB
 
 # supress future warnings from cvxpy
 warnings.simplefilter(action='ignore', category=FutureWarning)
@@ -94,21 +98,27 @@ class Linear(Policy):
         #     results = pool.map(covariance_constrained_optimization_problem, [(pred, self.covariance, self.var_limit) for pred in preds])
         # return np.array(results)
         allocation = np.zeros((len(preds), self.dim))
-
+        env = gp.Env(empty=True)
+        env.setParam("OutputFlag", 0)
+        env.start()
         for i in range(len(preds)):
-            x = cp.Variable(self.dim)
-            objective = cp.Minimize(x @ preds[i])
-            constraints = [x<=1, # have to allocate between 0 and 1
-                            x>=0, 
-                            x @ np.ones(self.dim) == 1, # allocation forms a distribution which sums to 1
-                            x @ self.linear_constraint.T <= self.max_val
-                            # x @ self.linear_constraint[0] <= self.max_val[0],
-                            # x @ self.linear_constraint[1] <= self.max_val[1]
-                            # cp.quad_form(x,self.covariance) <= self.var_limit  # allocation bounded by covariance matrix of ys
-                            ]
-            prob = cp.Problem(objective, constraints)
-            prob.solve(solver=cp.GUROBI, verbose=False) 
-            allocation[i] = x.value
+            m = gp.Model(env=env)
+            x = m.addMVar(self.dim, lb=0.0, ub=1.0)
+            m.setObjective(x @ preds[i], gp.GRB.MAXIMIZE)
+            m.addMConstr(self.linear_constraint, x, '<', self.max_val)
+            m.optimize()
+            allocation[i]=x.X
+            m.dispose()
+            # x = cp.Variable(self.dim)
+            # objective = cp.Maximize(x @ preds[i])
+            # constraints = [x<=1, # have to allocate between 0 and 1
+            #                 x>=0, 
+            #                 x @ np.ones(self.dim) == 1, # allocation forms a distribution which sums to 1
+            #                 x @ self.linear_constraint.T <= self.max_val
+            #                 ]
+            # prob = cp.Problem(objective, constraints)
+            # prob.solve(solver=cp.GUROBI, verbose=False) 
+            # allocation[i] = x.value
         return allocation
 
 # class LinearMax(Policy):
@@ -179,22 +189,19 @@ class VarianceConstrained(Policy):
 
         Pooling causing problems w suppressing stdout, and also for some reason slower than alternative, so tossing for now. 
         """
-        # with Pool() as pool:
-        #     results = pool.map(covariance_constrained_optimization_problem, [(pred, self.covariance, self.var_limit) for pred in preds])
-        # return np.array(results)
         allocation = np.zeros((len(preds), self.dim))
-
+        env = gp.Env(empty=True)
+        env.setParam("OutputFlag", 0)
+        env.start()
         for i in range(len(preds)):
-            x = cp.Variable(self.dim)
-            objective = cp.Maximize(x @ preds[i])
-            constraints = [x<=1, # have to allocate between 0 and 1
-                            x>=0, 
-                            x @ np.ones(self.dim) == 1, # allocation forms a distribution which sums to 1
-                            cp.quad_form(x,self.covariance) <= self.var_limit  # allocation bounded by covariance matrix of ys
-                            ]
-            prob = cp.Problem(objective, constraints)
-            prob.solve(solver=cp.GUROBI, verbose=False) 
-            allocation[i] = x.value
+            m = gp.Model(env=env)
+            x = m.addMVar(self.dim, lb=0.0, ub=1.0)
+            m.setObjective(x @ preds[i], gp.GRB.MAXIMIZE)
+            m.addConstr(x.sum() == 1)  # allocation forms a distribution which sums to 1
+            m.addConstr(x @ self.covariance @ x <= self.var_limit)
+            m.optimize()
+            allocation[i]=x.X
+            m.dispose()
         return allocation
 
 class LinearConstrained(Policy):
