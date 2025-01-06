@@ -8,6 +8,7 @@ class bbDebias:
     def __init__(self, init_model, policy, train_x, train_y, max_depth, tolerance):
         """
         init_models: Single initial model, which debiasing will be done with respect to. 
+                Expects a function which takes in a numpy array of length n and returns one of length n and dimension d.
         policies: A single policy induced by the initial model. Should be a policy object. 
         train_x: training data features of length n
         train_y: training data labels of length n
@@ -19,7 +20,7 @@ class bbDebias:
           and that they are the same for every coordinate. 
         """
 
-        self.init_model = init_model
+        self.init_model = init_model    
         self.policy = policy
         self.train_x = train_x 
         self.train_y = train_y

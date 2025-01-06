@@ -4,7 +4,7 @@ from sklearn.covariance import empirical_covariance
 
 class Policy:
 
-    def __init__(self, dim, model):
+    def __init__(self, dim):
         """
         name: string value describing what type of allocation policy
         gran: granularity used in generating the policy (e.g. if 0.1, can
@@ -21,22 +21,21 @@ class Policy:
         self.coordinate_values = None
         self.n_vals = None
         self.dim = dim
-        self.model = model
 
 class Simplex(Policy):
     """
     Simple policy which always picks the largest coordinate of the prediction vector and puts weight 1 on that
-    and 0 elsewhere, which is the solution to the unconstrained optimization of max policy \dot predictions on the
+    and 0 elsewhere, which is the solution to the unconstrained optimization of max policy dot predictions on the
     probability simplex. It runs quickly and without any optimization library, so useful for troubleshooting. 
     """
 
-    def __init__(self, dim, model):
-        Policy.__init__(self, dim, model)
+    def __init__(self, dim):
+        Policy.__init__(self, dim)
         self.name = "simplex"
-        self.coordinate_values = [1] 
-        self.gran = 0.1 # this is meaningless for this policy
+        self.coordinate_values = [0,1] 
         self.n_vals = len(self.coordinate_values)
-
+        self.gran = 1.0/self.n_vals # 1 bucket for 0, one for 1
+        
     def run_given_preds(self, preds):
         # expects numpy matrix of predictions, where 1 row corresponds to a single vector of predictions
         """
@@ -58,7 +57,7 @@ class Linear(Policy):
     and 
         max_val = [0.1,0.2]
     Then this corresponds the following optimization problem:
-    max w \dot v 
+    max w dot v 
     st
         w_2 + w_3 < 0.1,
     and
@@ -67,7 +66,7 @@ class Linear(Policy):
         w_i \in [0,1].
     """
     def __init__(self, dim, model, gran, linear_constraint, max_val):
-        Policy.__init__(self, dim, model)
+        Policy.__init__(self, dim)
         self.name = "linear-min"
         self.gran = gran
         self.coordinate_values = np.arange(0,1,gran)
@@ -106,8 +105,8 @@ class VarianceConstrained(Policy):
     Outputs policies that are constrained such that the weight vector sums to 1 and is bounded 
     by the empirical covariance matrix of the labels. 
     """
-    def __init__(self, dim, model, gran, var_limit, ys):
-        Policy.__init__(self, dim, model)
+    def __init__(self, dim, gran, var_limit, ys):
+        Policy.__init__(self, dim)
         self.name = "minimize-variance"
         self.gran = gran
         self.var_limit = var_limit
