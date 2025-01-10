@@ -32,6 +32,9 @@ class bbModel:
 
 
     def _generate_masks(self, masks, policies, policy_idx):
+        """
+        Takes policies etc as input so that it can be used out and in sample.
+        """
         policy = policies[policy_idx]
         for (coord, i) in itertools.product(range(self.n_coords), range(self.n_bins)):
             val = self.coordinate_values[i]
