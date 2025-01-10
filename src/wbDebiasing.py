@@ -11,6 +11,7 @@ class wbModel:
         self.tolerance = tolerance
 
         self.n_policies = len(policies)
+        self.n_models = self.n_policies
         self.n_coords = policies[0].dim
         self.n_bins = policies[0].n_vals
         self.n_samples = len(train_ys)
@@ -32,23 +33,6 @@ class wbModel:
         # # tracking for out-of-sample computation
         # self.targets_by_round = []
         # self.bias_by_round = []
-
-    def _update(self):
-        """
-        Debias on level sets
-        """
-        # while True:
-        #     bias, probs = self._calculate_bias()
-        #     max_weighted_bias,target_set, target_bias = self._find_maximum_bias(bias, probs)
-        #     if max_weighted_bias > self.tolerance:
-        #         self.targets_by_round.append(target_set)
-        #         self.bias_by_round.append(target_bias)
-        #         mask = self.masks[target_set].astype(bool).flatten()
-        #         mask_size = mask.sum()
-        #         self.curr_preds[mask]+=np.tile(target_bias, (mask_size, 1)) 
-        #     else:
-        #         break    
-        return None
     
     def _generate_model_ls_masks(self, preds_by_models):
         """
@@ -94,10 +78,10 @@ class wbModel:
 
     def _calculate_bias(self):
         """
-        For all c in C (masks array), calculates E[y - h(x)|x in c]
-        TODO: Make sure this works with the new shape of the masks. 
+        For all c in C (as defined by self.masks), calculates E[y - h(x)|x in c]
         output: (bias, probs)
-        bias shape: 
+        bias shape: k x d x m x k x d where each k x d x m x k slice describes a different level set's bias in all d coordinates
+        probs shape: k x d x m x k where each k x d x m x k slice is the density of that level set
         """
         # converting masks to floats and expanding dimension so can broadcast
         masks = self.masks.astype(np.float32)
@@ -110,12 +94,29 @@ class wbModel:
         return bias, probs
 
     def _find_maximum_bias(self, bias, probs):
-        l_infinity = np.max(np.abs(bias), axis=-1)
+        l_infinity = np.max(np.abs(bias), axis=-1) # shape k x d x m x k
         weighted_bias = probs*l_infinity
         max_weighted_bias = weighted_bias.max()
         target_set = tuple(np.argwhere(weighted_bias==max_weighted_bias)[0]) #converting into tuple for indexing
         target_bias = bias[target_set]
         return max_weighted_bias, target_set, target_bias
+    
+    def _update(self, model_idx):
+        """
+        Debias on level sets
+        """
+        # while True:
+        #     bias, probs = self._calculate_bias()
+        #     max_weighted_bias,target_set, target_bias = self._find_maximum_bias(bias, probs)
+        #     if max_weighted_bias > self.tolerance:
+        #         self.targets_by_round.append(target_set)
+        #         self.bias_by_round.append(target_bias)
+        #         mask = self.masks[target_set].astype(bool).flatten()
+        #         mask_size = mask.sum()
+        #         self.curr_preds[mask]+=np.tile(target_bias, (mask_size, 1)) 
+        #     else:
+        #         break    
+        return None
 
     def debias(self):    
         while True:
@@ -123,16 +124,14 @@ class wbModel:
             # policy_outputs will have shape k x n x d
             self.policy_outputs = np.array([self.policies[i].run_given_preds(self.preds_by_model[i]) for i in range(len(self.policies))]) # shape k x n x d
             
-            # generate masks. These are of shape k x d x m x k x m, where the masks at [k',d',m'] correspond to the level sets of model k'
+            # generate masks. These are of shape k x d x m x k x n, where the masks at [k',d',m'] correspond to the level sets of model k'
             # and the second k' is indexing over which model is maximal constrained to that level set of that model. 
-            self.masks = self._generate_masks(self.preds_by_model)
-
+            self.masks = self._generate_masks(self.preds_by_model)  # shape k x d x m x k x n
             bias, probs = self._calculate_bias()
-
-            max_own_bias,_,_ = self._find_maximum_bias(own_model_bias, own_model_probs)
-            max_models_bias,_,_ = self._find_maximum_bias(maximal_model_bias, maximal_model_probs)
-            if max(max_own_bias, max_models_bias) > self.tolerance:
-                self.update()
+            max_weighted_bias,_,_ = self._find_maximum_bias(bias, probs)
+            if max_weighted_bias > self.tolerance:
+                for model_idx in range(self.n_models):
+                self.update(model_idx)
             else: 
                 break
             
