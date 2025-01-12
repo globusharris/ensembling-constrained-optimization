@@ -188,8 +188,36 @@ class wbModel:
             mask_size = mask.sum()
             # update the predictions
             oos_preds_by_models[target_model, mask]+=np.tile(self.bias_by_round[idx], (mask_size, 1))
-            # rerun the target model's policy to update the policy level sets for the next round of updates
-            #oos_policy_outputs[target_model] = self.policies[target_model].run_given_preds(oos_preds_by_models[target_model])
 
             #pred_by_rounds.append(np.copy(oos_preds_by_models)) #DEBUG
         return oos_preds_by_models
+    
+    def ensemble(self, preds_by_models):
+        """
+        preds_by_models: shape k x n x d
+        """
+        _, n_samples, _ = preds_by_models.shape
+        # run policy on each
+        policy_outputs = np.array([self.policies[i].run_given_preds(preds_by_models[i]) for i in range(len(self.policies))]) # shape k x n x d
+        # find pointwise expected reward of all policies
+        rewards = np.vecdot(preds_by_models, policy_outputs) # shape k x n
+         #get maximal policy per point
+        maximal_policy_indices = np.argmax(rewards, axis=0)
+        # get policy which picks maximal policy per datapoint
+        ensemble_policy = policy_outputs[maximal_policy_indices, np.arange(n_samples)] # shape n x d
+        ensemble_model = preds_by_models[maximal_policy_indices, np.arange(n_samples)]
+        # calculate expected self-evaluation of model
+        expected_self_eval = np.max(rewards, axis=0).sum()/n_samples
+        return ensemble_policy, ensemble_model, expected_self_eval
+
+    def calc_ensemble_return(self, ensemble_policy, true_labels):
+        """
+        ensemble_policy: shape n x d
+        true_labels: shape n x d
+        """
+        ensemble_returns = np.sum(ensemble_policy*true_labels, axis=1) # shape n
+        expected_return = np.mean(ensemble_returns) #scalar
+        return expected_return, ensemble_returns
+
+
+
