@@ -12,45 +12,44 @@ class wbModel:
 
         self.n_policies = len(policies)
         self.n_models = self.n_policies
-        self.n_coords = policies[0].dim
-        self.n_bins = policies[0].n_vals
         self.n_samples = len(train_ys)
         self.tolerance = tolerance
+
+         # Note: as currently implemented, assumes all policies have same shape/form. This could be generalized by editing the below code.
+        self.n_coords = policies[0].dim
+        self.n_bins = policies[0].n_vals
+        self.coordinate_values = policies[0].coordinate_values
         self.gran = policies[0].gran
 
-        self.policy_outputs = None # shape k x n x d
         self.masks = None # shape k x m x d x k x n; masks of level sets to debias wrt for each of the k models 
 
-        # # run all policies in-sample on current predictions. Shape: list of length k+1 with entries of shape n x d 
-        # self.policies =[self.own_policy.run_given_preds(self.curr_preds)] + self.other_policies
-        # # generate level sets of all of the policies across all dimensions.
-        # self.coordinate_values = self.own_policy.coordinate_values 
+        # Bookkeeping for out of sample computation
+        self.targets_by_round = []
+        self.bias_by_round = []
 
-        # # generate the level sets of all of the policies as collection of Boolean masks
-        # self.masks = np.zeros((self.n_policies, self.n_coords, self.n_bins, self.n_samples), dtype='bool')
-        # [self._generate_masks(self.masks, self.policies, policy_idx) for policy_idx in range(self.n_policies)] 
+        # Bookkeeping for mses over rounds
+        self.mses_by_round = []
 
-        # # tracking for out-of-sample computation
-        # self.targets_by_round = []
-        # self.bias_by_round = []
+    def mse_per_model(self):
+        return np.mean((self.preds_by_models - self.train_ys)**2,axis=-2)
     
-    def _generate_model_ls_masks(self, preds_by_models):
+    def _generate_model_ls_masks(self, policy_outputs):
         """
         Should be usable both in and out of sample, hence passing predictions in as input. 
         Generates the d x m level sets of each of the k input models, where d is the dimension of the models' predictions and m is the number of LS per coordinate. 
         Each level set is expressed as a length-n Boolean mask; where if the mask is true at index i it means that datapoint i is a member of the level set. 
         
-        preds_by_model: shape k x n x d
+        preds_by_models: shape k x n x d
         output masks: shape k x d x m x n; masks[k,d,m] is a length-n Boolean mask of the level set m of 
         coordinate d of the predictions of model k
         """
         masks = np.zeros((self.n_policies, self.n_coords, self.n_bins, self.n_samples))
         for (k,d,m) in itertools.product(range(self.n_policies), range(self.n_coords), range(self.n_bins)):
             val = self.coordinate_values[m]
-            if d < self.n_bins - 1:
-                mask = (preds_by_models[k,:,d]>=val) & preds_by_models[k,:,d]<val+self.gran
+            if m < self.n_bins - 1:
+                mask = (policy_outputs[k,:,d]>=val) & (policy_outputs[k,:,d]<val+self.gran)
             else: # special case for last bin to deal with edges
-                mask = (preds_by_models[k,:,d]>=val) & preds_by_models[k,:,d]<=val+self.gran
+                mask = (policy_outputs[k,:,m]>=val) & (policy_outputs[k,:,d]<=val+self.gran)
             masks[k,d,m] = mask
         return masks
 
@@ -58,7 +57,7 @@ class wbModel:
         """
         Should be usable both in and out of sample!
         preds_by_models: k x n x d
-        all_policies: k x n x d
+        policy_outputs: k x n x d
         output masks: shape k x n; masks[k] is a length-n Boolean mask of the collection of training 
         points which have model k's induced policy predicted to be maximal.
         """
@@ -68,9 +67,9 @@ class wbModel:
         masks[max_models, np.arange(self.n_samples)] = True
         return masks
     
-    def _generate_masks(self, preds_by_model):
-        max_model_masks = self._generate_maximal_model_masks(preds_by_model) # shape k x d x m x n
-        model_ls_masks = self._generate_model_ls_masks(preds_by_model) # shape k x n 
+    def _generate_masks(self, preds_by_models, policy_outputs):
+        max_model_masks = self._generate_maximal_model_masks(preds_by_models, policy_outputs) # shape k x d x m x n
+        model_ls_masks = self._generate_model_ls_masks(preds_by_models) # shape k x n 
         # TODO: figure out how Prathamesh's version, which is more efficient, works
         masks = np.repeat(np.expand_dims(model_ls_masks,-2),2,axis=3)*max_model_masks 
         return masks
@@ -86,7 +85,7 @@ class wbModel:
         # converting masks to floats and expanding dimension so can broadcast
         masks = self.masks.astype(np.float32)
         masks = np.expand_dims(masks, axis=-1)
-        diffs = self.train_ys*masks - self.curr_preds*masks
+        diffs = self.train_ys*masks - np.expand_dims(self.preds_by_models, axis=(1,2,3))*masks
         sums = np.sum(diffs, axis=-2)
         ns = np.sum(masks, axis=-2)
         bias = np.where(ns>0, sums/ns.clip(min=1),0) # clip is to avoid div by 0 errors
@@ -94,6 +93,16 @@ class wbModel:
         return bias, probs
 
     def _find_maximum_bias(self, bias, probs):
+        """
+        Outputs:
+        max_weighted_bias: Maximum value of weighted bias of all level sets across all models, 
+        where weighting is in terms of the density of the level set on the training data. Scalar quantity, np.float64
+        
+        target_set: Index of the maximal level set. Tuple of length 4 of (target model index, target model coordinate, target coordinate level set, target maximal model level set). 
+        I.e. the first coordinate indexes which models' level set corresponds to the maximal bias and the final three correspond the the index of that level set for that particular model.
+
+        target_bias: Bias vector for the target set. This is a numpy array of shape (d,), corresponding to the bias in each of the d coordinates of the target level set. 
+        """
         l_infinity = np.max(np.abs(bias), axis=-1) # shape k x d x m x k
         weighted_bias = probs*l_infinity
         max_weighted_bias = weighted_bias.max()
@@ -101,43 +110,54 @@ class wbModel:
         target_bias = bias[target_set]
         return max_weighted_bias, target_set, target_bias
     
-    def _update(self, model_idx):
+    def _update(self):
         """
-        Debias on level sets
+        In Algorithm 2 in the paper, update is called within the while loop for *each* of the k models. 
+        It is unspecified how (e.g. the order) of the update steps. E.g. could first run update on model 1, then 2, 
+        or otherwise.
+        Here, we update them all *simultaneously*. I.e., we find the maximally biased level sets over every model, then 
+        update that particular model, and continue. 
+        Note that there is a shape difference in  and the bias arrays between this algorithm and the version
+        presented in the black-box algorithm. Here, preds_by_models is shape k x n x d, where k indexes over each of the k models,
+        and the bias array is shape k x d x m x k, where each of the k slices corresponds to the level sets to be unbiased of model k.
         """
-        # while True:
-        #     bias, probs = self._calculate_bias()
-        #     max_weighted_bias,target_set, target_bias = self._find_maximum_bias(bias, probs)
-        #     if max_weighted_bias > self.tolerance:
-        #         self.targets_by_round.append(target_set)
-        #         self.bias_by_round.append(target_bias)
-        #         mask = self.masks[target_set].astype(bool).flatten()
-        #         mask_size = mask.sum()
-        #         self.curr_preds[mask]+=np.tile(target_bias, (mask_size, 1)) 
-        #     else:
-        #         break    
+        while True:
+            bias, probs = self._calculate_bias()
+            max_weighted_bias, target_set, target_bias = self._find_maximum_bias(bias, probs)
+            target_model = target_set[0] # extracts out which model will be updated
+            if max_weighted_bias > self.tolerance:
+                # book-keeping for out-of-sample algorithm
+                self.targets_by_round.append(target_set)
+                self.bias_by_round.append(target_bias)
+                # debias the target model
+                mask = self.masks[target_set].astype(bool).flatten()
+                mask_size = mask.sum()
+                self.preds_by_models[target_model, mask]+=np.tile(target_bias, (mask_size, 1))
+            else: 
+                break 
+            # for debugging: tracking mses
+            self.mses_by_round.append(self.mse_per_model())
         return None
 
-    def debias(self):    
+    def debias(self):   
         while True:
             # update all the policies
             # policy_outputs will have shape k x n x d
-            self.policy_outputs = np.array([self.policies[i].run_given_preds(self.preds_by_model[i]) for i in range(len(self.policies))]) # shape k x n x d
+            policy_outputs = np.array([self.policies[i].run_given_preds(self.preds_by_models[i]) for i in range(len(self.policies))]) # shape k x n x d
             
             # generate masks. These are of shape k x d x m x k x n, where the masks at [k',d',m'] correspond to the level sets of model k'
             # and the second k' is indexing over which model is maximal constrained to that level set of that model. 
-            self.masks = self._generate_masks(self.preds_by_model)  # shape k x d x m x k x n
+            self.masks = self._generate_masks(self.preds_by_models, policy_outputs)  # shape k x d x m x k x n
             bias, probs = self._calculate_bias()
             max_weighted_bias,_,_ = self._find_maximum_bias(bias, probs)
             if max_weighted_bias > self.tolerance:
-                for model_idx in range(self.n_models):
-                self.update(model_idx)
+                self._update() #Note: update algorithm internally updates all of the k predictors.
             else: 
-                break
-            
-        return self.curr_preds
+                break   
+        return self.preds_by_models
     
-    def predict(self, oos_init_preds, oos_other_policies):
+    
+    # def predict(self, oos_init_preds, oos_other_policies):
         # oos_preds = np.copy(oos_init_preds)
         # oos_n = len(oos_preds)
         # policies = [self.own_policy.run_given_preds(oos_preds)] + oos_other_policies
