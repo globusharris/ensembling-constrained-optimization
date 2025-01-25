@@ -48,6 +48,32 @@ class Simplex(Policy):
         allocation[np.arange(len(preds)), max_coord] = np.ones(len(preds))
         return allocation
 
+class SingleCoordinateExpert(Policy):
+    """
+    Simple policy which always picks a single coordinate of the prediction vector and puts weight 1 on that
+    and 0 elsewhere. 
+    """
+
+    def __init__(self, dim, target_coordinate):
+        Policy.__init__(self, dim)
+        self.name = "single-coordinate"
+        self.target_coordinate = target_coordinate
+        self.coordinate_values = [0,1] 
+        self.n_vals = len(self.coordinate_values)
+        self.gran = 1.0/self.n_vals # 1 bucket for 0, one for 1
+        
+    def run_given_preds(self, preds):
+        # expects numpy matrix of predictions, where 1 row corresponds to a single vector of predictions
+        """
+        preds: array of predictions, where one row corresponds to a single vector of predictions.
+        return: allocation vector for each prediction. For optimization over simplex with no additional constraints,
+        this corresponds to putting all of the allocation's weight on the maximal coordinate of each prediction.
+        """
+        allocation = np.zeros((len(preds), self.dim))
+        allocation[np.arange(len(preds)), self.target_coordinate] = 1
+        return allocation
+
+
 class Linear(Policy):
     """
     Extremely simple linear optimization. 
@@ -63,7 +89,7 @@ class Linear(Policy):
     and
         w_1 + w_2 < 0.2,
     and
-        w_i \in [0,1].
+        w_i in [0,1].
     """
     def __init__(self, dim, model, gran, linear_constraint, max_val):
         Policy.__init__(self, dim)
