@@ -4,7 +4,7 @@ import itertools
 #Non round-robin version of debiasing
 
 class bbModel:
-    def __init__(self, own_policy, other_policies, train_ys, curr_preds, tolerance):
+    def __init__(self, own_policy, other_policies, train_ys, curr_preds, tolerance, testing=False):
         self.own_policy = own_policy
         self.other_policies = other_policies
         self.train_ys = train_ys
@@ -30,6 +30,11 @@ class bbModel:
         self.targets_by_round = []
         self.bias_by_round = []
 
+        # tracking for testing
+        self.testing = testing
+        self.counter = 0
+        self.max_rounds = 10
+
 
     def _generate_masks(self, masks, policies, policy_idx):
         """
@@ -52,6 +57,7 @@ class bbModel:
         # converting masks to floats and expanding dimension so can broadcast
         masks = self.masks.astype(np.float32)
         masks = np.expand_dims(masks, axis=-1)
+        self.train_ys*masks
         diffs = self.train_ys*masks - self.curr_preds*masks
         sums = np.sum(diffs, axis=-2)
         ns = np.sum(masks, axis=-2)
@@ -72,6 +78,10 @@ class bbModel:
         Debias on level sets
         """
         while True:
+            self.counter+=1
+            if self.testing:
+                if self.counter>self.max_rounds:
+                    return None
             bias, probs = self._calculate_bias()
             max_weighted_bias,target_set, target_bias = self._find_maximum_bias(bias, probs)
             if max_weighted_bias > self.tolerance:
@@ -89,6 +99,10 @@ class bbModel:
         Currently assumes that all of policies have same granularity of binning, dimension, etc. 
         """    
         while True:    
+            if self.testing:
+                self.counter+=1
+                if self.counter>self.max_rounds:
+                    return self.curr_preds
             bias, probs = self._calculate_bias()
             max_weighted_bias,_,_ = self._find_maximum_bias(bias, probs)
             if max_weighted_bias > self.tolerance:
@@ -100,14 +114,3 @@ class bbModel:
         
         return self.curr_preds
     
-    def predict(self, oos_init_preds, oos_other_policies):
-        oos_preds = np.copy(oos_init_preds)
-        oos_n = len(oos_preds)
-        policies = [self.own_policy.run_given_preds(oos_preds)] + oos_other_policies
-        oos_masks = np.zeros((self.n_policies, self.n_coords, self.n_bins, oos_n), dtype='bool')
-        [self._generate_masks(oos_masks, policies, policy_idx) for policy_idx in range(self.n_policies)]
-        for (idx, target) in enumerate(self.targets_by_round):
-            mask = oos_masks[target].astype(bool).flatten()
-            mask_size = mask.sum()
-            oos_preds[mask] += np.tile(self.bias_by_round[idx], (mask_size, 1))
-        return oos_preds
