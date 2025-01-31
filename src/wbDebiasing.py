@@ -5,6 +5,14 @@ import itertools
 
 class wbModel:
     def __init__(self, policies, train_ys, preds_by_models, tolerance):
+        """
+        policies: list of k policy objects as defined in policies.py, one associated with each model being ensembled
+        train_ys: n x d array of true labels/targets on the training dataset used for debiasing
+        preds_by_models: k x n x d array where the n x d array at index i is the predictions of model i 
+        tolerance: value between 0 and 1; tolerance with which to determine algorithm's halting condition
+
+        Runs the whitebox debiasing process on each of the k models. 
+        """
         self.policies = policies    # list of k policy objects
         self.train_ys = train_ys    # shape n x d
         self.preds_by_models = np.copy(preds_by_models) # shape k x n x d; predictions of each of the models
@@ -56,7 +64,7 @@ class wbModel:
             if m < self.n_bins - 1:
                 mask = (policy_outputs[k,:,d]>=val) & (policy_outputs[k,:,d]<val+self.gran)
             else: # special case for last bin to deal with edges
-                mask = (policy_outputs[k,:,m]>=val) & (policy_outputs[k,:,d]<=val+self.gran)
+                mask = (policy_outputs[k,:,d]>=val) & (policy_outputs[k,:,d]<=val+self.gran)
             masks[k,d,m] = mask
         return masks
 
@@ -76,10 +84,11 @@ class wbModel:
         return masks
     
     def _generate_masks(self, preds_by_models, policy_outputs):
-        max_model_masks = self._generate_maximal_model_masks(preds_by_models, policy_outputs) # shape k x d x m x n
-        model_ls_masks = self._generate_model_ls_masks(preds_by_models) # shape k x n 
-        # TODO: figure out how Prathamesh's version, which is more efficient, works
-        masks = np.repeat(np.expand_dims(model_ls_masks,-2),2,axis=3)*max_model_masks 
+        max_model_masks = self._generate_maximal_model_masks(preds_by_models, policy_outputs) # shape k x n
+        model_ls_masks = self._generate_model_ls_masks(policy_outputs) # shape k x n 
+        # TODO: double check this: why did I switch to the repeating thing below??
+        # masks = np.repeat(np.expand_dims(model_ls_masks,-2),2,axis=3)*max_model_masks 
+        masks = np.expand_dims(model_ls_masks, -2)*max_model_masks
         return masks
 
 
@@ -162,6 +171,7 @@ class wbModel:
             # generate masks. These are of shape k x d x m x k' x n, where the masks at [k,d',m'] correspond to the level sets of model k
             # and the second k' is indexing over which model is maximal constrained to that level set of that model. 
             self.masks = self._generate_masks(self.preds_by_models, policy_outputs)  # shape k x d x m x k x n
+            
             bias, probs = self._calculate_bias()
             max_weighted_bias,_,_ = self._find_maximum_bias(bias, probs)
             if max_weighted_bias > self.tolerance:

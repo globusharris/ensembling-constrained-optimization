@@ -35,6 +35,7 @@ class Simplex(Policy):
         self.coordinate_values = [0,1] 
         self.n_vals = len(self.coordinate_values)
         self.gran = 1.0/self.n_vals # 1 bucket for 0, one for 1
+        #self.gran = 1.0 #TODO: CHECK
         
     def run_given_preds(self, preds):
         # expects numpy matrix of predictions, where 1 row corresponds to a single vector of predictions
